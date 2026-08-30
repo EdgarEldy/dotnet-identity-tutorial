@@ -1,0 +1,43 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  commit-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages (Conventional Commits)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          pattern='^(feat|fix|refactor|test|docs|chore|build|ci|style|perf)\([a-z0-9.,/_-]+\): .{1,100}$'
+          failed=0
+
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+            if [[ "$subject" =~ $pattern ]]; then
+              echo "OK: $subject"
+            else
+              echo "INVALID: $subject"
+              failed=1
+            fi
+          done < <(git log "$BASE_SHA..$HEAD_SHA" --no-merges --pretty=format:'%s')
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "One or more commit messages do not follow Conventional Commits."
+            echo "Expected format: <type>(<scope>): <short summary>"
+            echo "Allowed types: feat, fix, refactor, test, docs, chore, build, ci, style, perf"
+            exit 1
+          fi

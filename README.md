@@ -198,22 +198,22 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] Create the solution and Web API project (`dotnet new webapi` targeting .NET 10)
-- [ ] NuGet packages: `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.Design`, `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `FluentValidation.AspNetCore`
-- [ ] Test packages: `xunit`, `Moq`, `Microsoft.AspNetCore.Mvc.Testing`, `Testcontainers.PostgreSql`, `Microsoft.Extensions.TimeProvider.Testing`
-- [ ] Package layout above
-- [ ] Controllers use the default ASP.NET Core routing convention (`[Route("api/v1/[controller]")]`), action method names resolving naturally into their route segments - no `LowercaseUrls` override, no hand-typed kebab-case
-- [ ] Pagination helper for list endpoints: sets `X-Total-Count` and `Link` (`next`/`prev`) response headers rather than a body wrapper - see [above](#success-responses-and-error-responses-minimal-http-semantics--problemdetails)
-- [ ] `GlobalExceptionHandler` (`IExceptionHandler`), registered via `AddExceptionHandler<GlobalExceptionHandler>()` + `AddProblemDetails()`; maps `ResourceNotFoundException` → 404, `BusinessRuleException` → 422, anything unmapped → 500, each as a `ProblemDetails`
-- [ ] `ValidationFilter` (`IAsyncActionFilter`): resolves `IValidator<T>` for the action's request DTO, runs it before the action executes, short-circuits with a `ValidationProblemDetails` (400) on failure - registered globally so no controller needs to call it explicitly
-- [ ] `TimeProvider` registered as a singleton (`builder.Services.AddSingleton(TimeProvider.System)`), injected anywhere expiry or timestamp logic is needed, instead of calling `DateTime.UtcNow` directly
-- [ ] CORS: a named policy for the frontend origin(s), configured from `appsettings`, applied globally
-- [ ] `UseHttpsRedirection()` and `UseHsts()` (the latter outside the `Development` environment), applied before any other middleware in the pipeline
-- [ ] `IEmailService`/`EmailService` (contract/implementation, `Services/Interfaces`/`Services/Implementations`): `SendConfirmationEmailAsync`, `SendPasswordResetEmailAsync` - for this tutorial, the implementation logs the link rather than sending a real email, to stay self-contained without a mail provider dependency. This is a project-defined interface, distinct from Identity's own `IEmailSender<TUser>` extension point (relevant only to `MapIdentityApi`/the scaffolded Identity UI, neither of which this project uses, since `AuthController` calls `UserManager`'s token methods directly)
-- [ ] `appsettings.json`/`appsettings.Development.json`: PostgreSQL connection string, JWT signing key, access/refresh token lifetimes, allowed CORS origins
-- [ ] Swagger UI configuration with the JWT Bearer "Authorize" button
-- [ ] `docker-compose.yml` (API + PostgreSQL), `Dockerfile`
-- [ ] `.github/workflows/ci.yml`: `dotnet build` + `dotnet test`
+- [x] Create the solution and Web API project (`dotnet new webapi` targeting .NET 10)
+- [x] NuGet packages: `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.Design`, `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `FluentValidation.AspNetCore`
+- [x] Test packages: `xunit`, `Moq`, `Microsoft.AspNetCore.Mvc.Testing`, `Testcontainers.PostgreSql`, `Microsoft.Extensions.TimeProvider.Testing`
+- [x] Package layout above
+- [x] Controllers use the default ASP.NET Core routing convention (`[Route("api/v1/[controller]")]`), action method names resolving naturally into their route segments - no `LowercaseUrls` override, no hand-typed kebab-case
+- [x] Pagination helper for list endpoints: sets `X-Total-Count` and `Link` (`next`/`prev`) response headers rather than a body wrapper - see [above](#success-responses-and-error-responses-minimal-http-semantics--problemdetails)
+- [x] `GlobalExceptionHandler` (`IExceptionHandler`), registered via `AddExceptionHandler<GlobalExceptionHandler>()` + `AddProblemDetails()`; maps `ResourceNotFoundException` → 404, `BusinessRuleException` → 422, anything unmapped → 500, each as a `ProblemDetails`
+- [x] `ValidationFilter` (`IAsyncActionFilter`): resolves `IValidator<T>` for the action's request DTO, runs it before the action executes, short-circuits with a `ValidationProblemDetails` (400) on failure - registered globally so no controller needs to call it explicitly
+- [x] `TimeProvider` registered as a singleton (`builder.Services.AddSingleton(TimeProvider.System)`), injected anywhere expiry or timestamp logic is needed, instead of calling `DateTime.UtcNow` directly
+- [x] CORS: a named policy for the frontend origin(s), configured from `appsettings`, applied globally
+- [x] `UseHttpsRedirection()` and `UseHsts()` (the latter outside the `Development` environment), applied before any other middleware in the pipeline
+- [x] `IEmailService`/`EmailService` (contract/implementation, `Services/Interfaces`/`Services/Implementations`): `SendConfirmationEmailAsync`, `SendPasswordResetEmailAsync` - for this tutorial, the implementation logs the link rather than sending a real email, to stay self-contained without a mail provider dependency. This is a project-defined interface, distinct from Identity's own `IEmailSender<TUser>` extension point (relevant only to `MapIdentityApi`/the scaffolded Identity UI, neither of which this project uses, since `AuthController` calls `UserManager`'s token methods directly)
+- [x] `appsettings.json`/`appsettings.Development.json`: PostgreSQL connection string, JWT signing key, access/refresh token lifetimes, allowed CORS origins
+- [x] Swagger UI configuration with the JWT Bearer "Authorize" button
+- [x] `docker-compose.yml` (API + PostgreSQL), `Dockerfile`
+- [x] `.github/workflows/ci.yml`: `dotnet build` + `dotnet test`
 
 ## feature/identity-setup
 
@@ -391,4 +391,12 @@ DotnetIdentityTutorial/
 
 1. Clone the repository and check out `develop`
 2. Follow the branches in order: `feature/core-architecture` → `feature/identity-setup` → `feature/rbac` → `feature/claims-and-authorization` → `feature/token-lifecycle` → `feature/auth-flows` → `feature/mfa` → `feature/audit-logging` → (bonus) `feature/external-logins`
-3. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
+3. Copy `.env.example` to `.env` and fill in real values. `docker-compose.yml` expects an
+   external Docker network named `pg_net` with a reachable PostgreSQL container named
+   `postgres_main` on it, matching `.env.example`'s default `POSTGRES_HOST` (this keeps
+   one shared Postgres instance across this author's tutorials instead of a dedicated one
+   per project); create your own with `docker network create pg_net` and a `postgres:16`
+   container named `postgres_main` attached to it (or add your own `postgres` service to
+   `docker-compose.yml` and point `POSTGRES_HOST` in `.env` at whatever you name it
+   instead, if you'd rather have compose provision it directly)
+4. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
