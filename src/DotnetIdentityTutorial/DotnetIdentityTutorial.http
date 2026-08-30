@@ -1,0 +1,6 @@
+@DotnetIdentityTutorial_HostAddress = http://localhost:5277
+
+GET {{DotnetIdentityTutorial_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
