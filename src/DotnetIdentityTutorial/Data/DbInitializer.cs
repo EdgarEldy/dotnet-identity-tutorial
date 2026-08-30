@@ -12,10 +12,23 @@ namespace DotnetIdentityTutorial.Data;
 /// unique-constraint violation to make the operation idempotent - that way a duplicate row
 /// never even gets attempted, and the seeding logic reads the same as any other idempotent
 /// upsert instead of using an exception as control flow.
+///
+/// Calls RoleManager directly rather than going through a Services/Implementations wrapper:
+/// this is bootstrap code that runs once at startup, not something reachable from a request,
+/// and it is tested directly against a real database (DbInitializerTests) rather than through
+/// a mocked service interface, so the usual "no Identity manager outside Services/Implementations"
+/// rule is deliberately not applied here. This is the one sanctioned exception, alongside
+/// Program.cs's own AddIdentity/AddEntityFrameworkStores calls.
+///
+/// This also does not call IAuditService: that service does not exist until
+/// feature/audit-logging, and startup seeding has no real "actor" performing the action in
+/// the sense the audit trail is meant to capture. Revisit once that branch lands.
 /// </summary>
 public static class DbInitializer
 {
-    private static readonly string[] Roles = ["ADMIN", "USER"];
+    private const string AdminRoleName = "ADMIN";
+
+    private static readonly string[] Roles = [AdminRoleName, "USER"];
 
     private static readonly (string Resource, string Action)[] BaselinePermissions =
     [
@@ -42,9 +55,19 @@ public static class DbInitializer
     {
         foreach (var roleName in Roles)
         {
-            if (!await roleManager.RoleExistsAsync(roleName))
+            if (await roleManager.RoleExistsAsync(roleName))
             {
-                await roleManager.CreateAsync(new ApplicationRole { Name = roleName });
+                continue;
+            }
+
+            var result = await roleManager.CreateAsync(new ApplicationRole { Name = roleName });
+            if (!result.Succeeded)
+            {
+                // Unlike EF Core's SaveChangesAsync below, RoleManager.CreateAsync fails by
+                // returning a result instead of throwing, an unchecked result here would let
+                // seeding continue as if the role existed and fail confusingly later instead.
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                throw new InvalidOperationException($"Failed to seed role '{roleName}': {errors}");
             }
         }
     }
@@ -54,9 +77,10 @@ public static class DbInitializer
         var existing = await dbContext.Permissions
             .Select(p => new { p.Resource, p.Action })
             .ToListAsync();
+        var existingSet = existing.Select(e => (e.Resource, e.Action)).ToHashSet();
 
         var missing = BaselinePermissions
-            .Where(bp => !existing.Any(e => e.Resource == bp.Resource && e.Action == bp.Action))
+            .Where(bp => !existingSet.Contains(bp))
             .Select(bp => new Permission { Resource = bp.Resource, Action = bp.Action });
 
         dbContext.Permissions.AddRange(missing);
@@ -65,7 +89,7 @@ public static class DbInitializer
 
     private static async Task AssignPermissionsToAdminAsync(AppDbContext dbContext)
     {
-        var adminRole = await dbContext.Roles.SingleAsync(r => r.NormalizedName == "ADMIN");
+        var adminRole = await dbContext.Roles.SingleAsync(r => r.NormalizedName == AdminRoleName);
         var allPermissionIds = await dbContext.Permissions.Select(p => p.Id).ToListAsync();
 
         var alreadyAssignedIds = await dbContext.RolePermissions
