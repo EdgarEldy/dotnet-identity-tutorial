@@ -23,11 +23,11 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        var (statusCode, title) = exception switch
+        var (statusCode, title, type) = exception switch
         {
-            ResourceNotFoundException => (StatusCodes.Status404NotFound, "Resource not found"),
-            BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, "Business rule violation"),
-            _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred"),
+            ResourceNotFoundException => (StatusCodes.Status404NotFound, "Resource not found", "https://tools.ietf.org/html/rfc9110#section-15.5.5"),
+            BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, "Business rule violation", "https://tools.ietf.org/html/rfc4918#section-11.2"),
+            _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred", "https://tools.ietf.org/html/rfc9110#section-15.6.1"),
         };
 
         if (statusCode == StatusCodes.Status500InternalServerError)
@@ -56,7 +56,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
                 Status = statusCode,
                 Title = title,
                 Detail = detail,
-                Type = "https://tools.ietf.org/html/rfc9457",
+                Type = type,
             },
         });
     }
