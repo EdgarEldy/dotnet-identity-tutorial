@@ -1,7 +1,11 @@
+using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.ErrorHandling;
 using DotnetIdentityTutorial.Filters;
+using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 // Types like OpenApiInfo/OpenApiSecurityScheme live directly under Microsoft.OpenApi here,
 // not under Microsoft.OpenApi.Models as most Swashbuckle examples show. Swashbuckle.AspNetCore
@@ -32,6 +36,31 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Password/lockout policy only - the JWT bearer scheme itself is feature/token-lifecycle's
+// job, this branch only needs Identity's own stores and token providers (email confirmation,
+// password reset) wired up.
+builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
+{
+    options.Password.RequireDigit = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequiredLength = 8;
+
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
+})
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
+
+// No policies yet - PermissionPolicyProvider arrives with feature/claims-and-authorization.
+// Registered now so UseAuthorization() below has something backing it.
+builder.Services.AddAuthorization();
 
 var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 const string FrontendCorsPolicy = "Frontend";
@@ -97,5 +126,18 @@ app.UseCors(FrontendCorsPolicy);
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Applying the migration and seeding both run on every startup, not just once manually.
+// Migrate() is a no-op once the schema is current, and DbInitializer's steps are
+// idempotent (see DbInitializer), so this is safe to call unconditionally instead of
+// requiring a reader to run `dotnet ef database update` by hand before `docker-compose up`
+// actually works end to end.
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await dbContext.Database.MigrateAsync();
+
+    await DbInitializer.SeedAsync(scope.ServiceProvider);
+}
 
 app.Run();
