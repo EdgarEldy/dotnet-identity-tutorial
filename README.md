@@ -391,4 +391,11 @@ DotnetIdentityTutorial/
 
 1. Clone the repository and check out `develop`
 2. Follow the branches in order: `feature/core-architecture` → `feature/identity-setup` → `feature/rbac` → `feature/claims-and-authorization` → `feature/token-lifecycle` → `feature/auth-flows` → `feature/mfa` → `feature/audit-logging` → (bonus) `feature/external-logins`
-3. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
+3. Copy `.env.example` to `.env` and fill in real values. `docker-compose.yml` expects an
+   external Docker network named `pg_net` with a reachable PostgreSQL container on it
+   (this keeps one shared Postgres instance across this author's tutorials instead of a
+   dedicated one per project); create your own with `docker network create pg_net` and a
+   `postgres:16` container attached to it (or add your own `postgres` service to
+   `docker-compose.yml` and point `POSTGRES_HOST` at it instead, if you'd rather have
+   compose provision it directly)
+4. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
