@@ -21,7 +21,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          pattern='^(feat|fix|refactor|test|docs|chore|style|perf)\([a-z0-9.,/_-]+\): .{1,100}$'
+          pattern='^(feat|fix|refactor|test|docs|chore|build|ci|style|perf)\([a-z0-9.,/_-]+\): .{1,100}$'
           failed=0
 
           while IFS= read -r subject; do
@@ -38,6 +38,6 @@ jobs:
             echo ""
             echo "One or more commit messages do not follow Conventional Commits."
             echo "Expected format: <type>(<scope>): <short summary>"
-            echo "Allowed types: feat, fix, refactor, test, docs, chore, style, perf"
+            echo "Allowed types: feat, fix, refactor, test, docs, chore, build, ci, style, perf"
             exit 1
           fi
