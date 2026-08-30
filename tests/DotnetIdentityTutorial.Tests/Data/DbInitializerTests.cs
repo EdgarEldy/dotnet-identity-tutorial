@@ -39,9 +39,12 @@ public class DbInitializerTests : IAsyncLifetime
     public Task DisposeAsync() => _postgresContainer.DisposeAsync().AsTask();
 
     /// <summary>
-    /// Mirrors the DI shape Program.cs builds: AppDbContext against the real connection
-    /// string, plus the minimal Identity registration DbInitializer.SeedAsync needs
-    /// (RoleManager&lt;ApplicationRole&gt;, backed by the same AppDbContext).
+    /// Registers only what <see cref="DbInitializer.SeedAsync"/> itself needs (AppDbContext
+    /// against the real connection string, and a RoleManager&lt;ApplicationRole&gt; via
+    /// AddIdentityCore), not the full AddIdentity() Program.cs registers. If a future test
+    /// in this class needs UserManager too, add the missing pieces (AddDefaultTokenProviders,
+    /// password/lockout options) explicitly rather than assuming this already matches
+    /// Program.cs's configuration.
     /// </summary>
     private ServiceProvider BuildServiceProvider()
     {
