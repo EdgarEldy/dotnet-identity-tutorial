@@ -65,6 +65,7 @@ public class GlobalExceptionHandlerTests
         Assert.Equal(StatusCodes.Status404NotFound, problemDetails.Status);
         Assert.Equal("Resource not found", problemDetails.Title);
         Assert.Equal("User 42 was not found.", problemDetails.Detail);
+        Assert.Equal("https://tools.ietf.org/html/rfc9110#section-15.5.5", problemDetails.Type);
     }
 
     [Fact]
@@ -82,6 +83,7 @@ public class GlobalExceptionHandlerTests
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, problemDetails.Status);
         Assert.Equal("Business rule violation", problemDetails.Title);
         Assert.Equal("A role cannot be assigned to a locked user.", problemDetails.Detail);
+        Assert.Equal("https://tools.ietf.org/html/rfc4918#section-11.2", problemDetails.Type);
     }
 
     [Fact]
@@ -105,5 +107,6 @@ public class GlobalExceptionHandlerTests
         // exception is still logged server-side by GlobalExceptionHandler, just not returned.
         Assert.Equal("An unexpected error occurred. Please try again later.", problemDetails.Detail);
         Assert.DoesNotContain(sensitiveMessage, problemDetails.Detail);
+        Assert.Equal("https://tools.ietf.org/html/rfc9110#section-15.6.1", problemDetails.Type);
     }
 }
