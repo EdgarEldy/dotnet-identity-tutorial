@@ -1,3 +1,4 @@
+using DotnetIdentityTutorial.Models;
 using Microsoft.AspNetCore.Identity;
 
 namespace DotnetIdentityTutorial.Identity;
@@ -8,4 +9,5 @@ namespace DotnetIdentityTutorial.Identity;
 /// </summary>
 public class ApplicationRole : IdentityRole<int>
 {
+    public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }

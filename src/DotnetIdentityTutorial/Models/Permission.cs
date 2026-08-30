@@ -14,4 +14,6 @@ public class Permission
     public required string Resource { get; set; }
 
     public required string Action { get; set; }
+
+    public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }
