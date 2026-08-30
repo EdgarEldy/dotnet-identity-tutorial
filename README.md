@@ -219,13 +219,13 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `ApplicationUser : IdentityUser<int>` (adds `FirstName`, `LastName`), `ApplicationRole : IdentityRole<int>`
-- [ ] `AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, int>`
-- [ ] `Program.cs`: `AddIdentity<ApplicationUser, ApplicationRole>()`, password policy, lockout policy
-- [ ] Initial EF Core migration - Identity's own schema only
-- [ ] Startup seeding: default roles (`ADMIN`, `USER`) via `RoleManager`
-- [ ] Startup seeding, continued: a baseline set of `Permission` rows covering every resource/action this project defines (`USER:READ`, `USER:WRITE`, `ROLE:READ`, `ROLE:WRITE`, `PERMISSION:READ`, `PERMISSION:WRITE`, `AUDIT:READ`, ...), each immediately assigned to `ADMIN` via `RolePermission` - without this, `[Authorize(Policy = "PERMISSION:WRITE")]` on `POST /api/v1/Permissions` (added in `feature/rbac`) can never be satisfied by anyone, since no account would hold that permission and the endpoint that grants it requires it circularly
-- [ ] Tests: migration applies cleanly against Testcontainers PostgreSQL, both seeding steps are idempotent (running startup twice doesn't duplicate roles or permissions, doesn't fail on an already-existing `RolePermission` row)
+- [x] `ApplicationUser : IdentityUser<int>` (adds `FirstName`, `LastName`), `ApplicationRole : IdentityRole<int>`
+- [x] `AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, int>`
+- [x] `Program.cs`: `AddIdentity<ApplicationUser, ApplicationRole>()`, password policy, lockout policy
+- [x] Initial EF Core migration - Identity's own schema, plus `Permissions`/`RolePermissions` (pulled forward from `feature/rbac`'s entities, see the checklist note there and `.claude/CLAUDE.md`'s "Deviations")
+- [x] Startup seeding: default roles (`ADMIN`, `USER`) via `RoleManager`
+- [x] Startup seeding, continued: a baseline set of `Permission` rows covering every resource/action this project defines (`USER:READ`, `USER:WRITE`, `ROLE:READ`, `ROLE:WRITE`, `PERMISSION:READ`, `PERMISSION:WRITE`, `AUDIT:READ`, ...), each immediately assigned to `ADMIN` via `RolePermission` - without this, `[Authorize(Policy = "PERMISSION:WRITE")]` on `POST /api/v1/Permissions` (added in `feature/rbac`) can never be satisfied by anyone, since no account would hold that permission and the endpoint that grants it requires it circularly
+- [x] Tests: migration applies cleanly against Testcontainers PostgreSQL, both seeding steps are idempotent (running startup twice doesn't duplicate roles or permissions, doesn't fail on an already-existing `RolePermission` row)
 
 ## feature/rbac
 
@@ -248,7 +248,7 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `Permission`, `RolePermission` entities, Fluent API configuration
+- [x] `Permission`, `RolePermission` entities, Fluent API configuration (done early, in `feature/identity-setup`, since startup seeding there needed them to exist; see that branch's checklist note and `.claude/CLAUDE.md`)
 - [ ] `IRbacService`/`RbacService`: permission CRUD, role CRUD, assignment/removal operations - every assignment/removal call also writes an entry via `IAuditService` (from `feature/audit-logging`; stub the call now, wire the real implementation once that branch lands)
 - [ ] `IUserAdminService`/`UserAdminService`: user listing/detail, lock/unlock - same audit hook
 - [ ] `RegisterRequestValidator`-style `FluentValidation` validators for every new request DTO introduced in this branch
