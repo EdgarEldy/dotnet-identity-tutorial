@@ -123,6 +123,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(FrontendCorsPolicy);
 
+// AddIdentity<>() above already registers the cookie-based authentication schemes
+// Identity needs internally (it calls AddAuthentication for you); this middleware is
+// what actually populates HttpContext.User from them on each request, without it
+// UseAuthorization below would only ever see an anonymous principal. Registering it
+// now, even though no [Authorize] endpoint exists yet, fixes the pipeline order once
+// so feature/token-lifecycle doesn't have to remember to insert it in the right spot.
+app.UseAuthentication();
+
 app.UseAuthorization();
 
 app.MapControllers();
