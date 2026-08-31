@@ -2,6 +2,7 @@ using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.Dtos.Rbac;
 using DotnetIdentityTutorial.Exceptions;
 using DotnetIdentityTutorial.Identity;
+using DotnetIdentityTutorial.Models;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -40,6 +41,7 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
     {
         using var scope = _fixture.ServiceProvider.CreateScope();
         var rbacService = scope.ServiceProvider.GetRequiredService<IRbacService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var resource = Unique("RES");
 
         var created = await rbacService.CreatePermissionAsync(new PermissionRequest(resource, "READ"));
@@ -47,6 +49,13 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
         Assert.True(created.Id > 0);
         var all = await rbacService.GetPermissionsAsync();
         Assert.Contains(all, p => p.Id == created.Id && p.Resource == resource && p.Action == "READ");
+
+        // CreatePermissionAsync calls IAuditService.LogAsync with the newly created permission's
+        // own id as the entity id - feature/audit-logging's own checklist item, re-run against
+        // feature/rbac's existing test rather than duplicated into a parallel test file.
+        var auditLog = await dbContext.AuditLogs
+            .SingleAsync(a => a.EntityType == nameof(Permission) && a.EntityId == created.Id.ToString());
+        Assert.Equal("Create", auditLog.Action);
     }
 
     [Fact]
@@ -66,6 +75,7 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
     {
         using var scope = _fixture.ServiceProvider.CreateScope();
         var rbacService = scope.ServiceProvider.GetRequiredService<IRbacService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var roleName = Unique("ROLE");
 
         var created = await rbacService.CreateRoleAsync(new RoleRequest(roleName));
@@ -73,6 +83,10 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
         Assert.True(created.Id > 0);
         Assert.Equal(roleName, created.Name);
         Assert.Empty(created.Permissions);
+
+        var auditLog = await dbContext.AuditLogs
+            .SingleAsync(a => a.EntityType == nameof(ApplicationRole) && a.EntityId == created.Id.ToString());
+        Assert.Equal("Create", auditLog.Action);
     }
 
     [Fact]
@@ -105,6 +119,16 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
 
         var roleAfter = (await rbacService.GetRolesAsync()).Single(r => r.Id == role.Id);
         Assert.Contains(roleAfter.Permissions, p => p.Id == permission.Id);
+
+        // AssignPermissionToRoleAsync logs unconditionally on every call, even when the
+        // relationship already existed - the audit trail records that the operation was invoked
+        // twice, which is a genuinely different fact from RolePermissions staying at one row
+        // (asserted above). Idempotency is a property of the resulting state, not of how many
+        // times the action was attempted.
+        var auditLogs = await dbContext.AuditLogs
+            .Where(a => a.Action == "AssignPermission" && a.EntityType == nameof(ApplicationRole) && a.EntityId == role.Id.ToString())
+            .ToListAsync();
+        Assert.Equal(2, auditLogs.Count);
     }
 
     [Fact]
@@ -137,6 +161,12 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
         var exists = await dbContext.RolePermissions
             .AnyAsync(rp => rp.RoleId == role.Id && rp.PermissionId == permission.Id);
         Assert.False(exists);
+
+        // SingleAsync itself is the assertion here: it throws if no matching row exists, and
+        // would also throw if RemovePermissionFromRoleAsync's earlier unconditional
+        // AssignPermission-then-RemovePermission calls somehow produced more than one.
+        await dbContext.AuditLogs
+            .SingleAsync(a => a.Action == "RemovePermission" && a.EntityType == nameof(ApplicationRole) && a.EntityId == role.Id.ToString());
     }
 
     [Fact]
@@ -167,6 +197,7 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
         using var scope = _fixture.ServiceProvider.CreateScope();
         var rbacService = scope.ServiceProvider.GetRequiredService<IRbacService>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var role = await rbacService.CreateRoleAsync(new RoleRequest(Unique("ROLE")));
         var user = await CreateUserAsync(userManager);
 
@@ -175,6 +206,14 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
 
         var roles = await userManager.GetRolesAsync(user);
         Assert.Single(roles, role.Name);
+
+        // Same "logs every call, not just the ones that changed state" behavior as
+        // AssignPermissionToRoleAsync above - two calls, two audit rows, one resulting role
+        // membership.
+        var auditLogs = await dbContext.AuditLogs
+            .Where(a => a.Action == "AssignRole" && a.EntityType == "User" && a.EntityId == user.Id.ToString())
+            .ToListAsync();
+        Assert.Equal(2, auditLogs.Count);
     }
 
     [Fact]
@@ -198,6 +237,7 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
         using var scope = _fixture.ServiceProvider.CreateScope();
         var rbacService = scope.ServiceProvider.GetRequiredService<IRbacService>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var role = await rbacService.CreateRoleAsync(new RoleRequest(Unique("ROLE")));
         var user = await CreateUserAsync(userManager);
         await rbacService.AssignRoleToUserAsync(user.Id, role.Id);
@@ -206,6 +246,9 @@ public class RbacServiceTests : IClassFixture<RbacServiceFixture>
 
         var roles = await userManager.GetRolesAsync(user);
         Assert.Empty(roles);
+
+        await dbContext.AuditLogs
+            .SingleAsync(a => a.Action == "RemoveRole" && a.EntityType == "User" && a.EntityId == user.Id.ToString());
     }
 
     [Fact]
