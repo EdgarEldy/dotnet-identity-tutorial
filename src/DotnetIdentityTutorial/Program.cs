@@ -47,6 +47,11 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 // substitute FakeTimeProvider.
 builder.Services.AddSingleton(TimeProvider.System);
 
+// AuditService resolves "who performed this action" from the ambient HttpContext (see its own
+// remarks) rather than requiring every RbacService/UserAdminService call site to pass an actor
+// through explicitly - this is the only consumer of IHttpContextAccessor in the project so far.
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IRbacService, RbacService>();
