@@ -291,15 +291,15 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `IAuthService`/`AuthService`: every flow above, delegating token issuance to `ITokenService`
-- [ ] `RegisterAsync` and `ForgotPasswordAsync` call `IEmailService` (from `feature/core-architecture`) to send the confirmation link and the reset link, respectively, instead of only generating a token that nothing ever delivers
-- [ ] `ChangePasswordAsync`: wraps `UserManager.ChangePasswordAsync(user, currentPassword, newPassword)` - distinct from `ResetPasswordAsync`, which is for a user who has lost access and can't provide a current password; a password change here also revokes every outstanding refresh token family for the user (the same `SecurityStamp`-comparison mechanism from `feature/token-lifecycle` handles this automatically, since `ChangePasswordAsync` rotates the stamp)
-- [ ] `Program.cs`: `options.SignIn.RequireConfirmedAccount = true` set explicitly on `AddIdentity<...>()` - without it, `Login` succeeds for an account that never completed `ConfirmEmail`, making the activation flow purely cosmetic
-- [ ] `ForgotPasswordAsync` returns the exact same response - same status code, same body - whether or not the submitted email matches an existing account, and takes roughly the same amount of time either way (no early return that skips the token-generation work); without this, the endpoint becomes a user-enumeration oracle, since a distinguishable response (or a measurably faster one) tells an attacker which emails are registered
-- [ ] `AuthController`
-- [ ] `RateLimiterPolicies`: a named fixed-window policy (`"auth"`, e.g. 5 requests/minute per IP) applied via `[EnableRateLimiting("auth")]` on `Register`, `Login`, and `ForgotPassword` - Identity's own lockout already protects a single account from brute force, this protects the endpoint itself from distributed attempts across many accounts; the same named policy is reused by `feature/mfa`'s `VerifyTwoFactor` endpoint
-- [ ] `Program.cs` finalized: `AddAuthentication().AddJwtBearer(...)`, `AddAuthorization`, `AddRateLimiter(...)`
-- [ ] End-to-end tests: full lifecycle (register → confirm → login → call a protected endpoint → refresh → logout → confirm rejection afterward), the rate limiter returning 429 past its threshold, an account-lockout test using `FakeTimeProvider` to advance past the lockout window without a real wait
+- [x] `IAuthService`/`AuthService`: every flow above, delegating token issuance to `ITokenService`
+- [x] `RegisterAsync` and `ForgotPasswordAsync` call `IEmailService` (from `feature/core-architecture`) to send the confirmation link and the reset link, respectively, instead of only generating a token that nothing ever delivers
+- [x] `ChangePasswordAsync`: wraps `UserManager.ChangePasswordAsync(user, currentPassword, newPassword)` - distinct from `ResetPasswordAsync`, which is for a user who has lost access and can't provide a current password; a password change here also revokes every outstanding refresh token family for the user (the same `SecurityStamp`-comparison mechanism from `feature/token-lifecycle` handles this automatically, since `ChangePasswordAsync` rotates the stamp)
+- [x] `Program.cs`: `options.SignIn.RequireConfirmedAccount = true` set explicitly on `AddIdentity<...>()` - without it, `Login` succeeds for an account that never completed `ConfirmEmail`, making the activation flow purely cosmetic
+- [x] `ForgotPasswordAsync` returns the exact same response - same status code, same body - whether or not the submitted email matches an existing account, and takes roughly the same amount of time either way (no early return that skips the token-generation work); without this, the endpoint becomes a user-enumeration oracle, since a distinguishable response (or a measurably faster one) tells an attacker which emails are registered
+- [x] `AuthController`
+- [x] `RateLimiterPolicies`: a named fixed-window policy (`"auth"`, e.g. 5 requests/minute per IP) applied via `[EnableRateLimiting("auth")]` on `Register`, `Login`, and `ForgotPassword` - Identity's own lockout already protects a single account from brute force, this protects the endpoint itself from distributed attempts across many accounts; the same named policy is reused by `feature/mfa`'s `VerifyTwoFactor` endpoint
+- [x] `Program.cs` finalized: `AddAuthentication().AddJwtBearer(...)`, `AddAuthorization`, `AddRateLimiter(...)`
+- [x] End-to-end tests: full lifecycle (register → confirm → login → call a protected endpoint → refresh → logout → confirm rejection afterward), the rate limiter returning 429 past its threshold, an account-lockout test - `FakeTimeProvider` advances `ITokenService`'s own timestamps, but Identity's lockout clock isn't `TimeProvider`-seamed in this SDK version (confirmed, see `.claude/CLAUDE.md`), so the lockout test simulates elapsed time via `UserManager.SetLockoutEndDateAsync` instead, still without any real wait
 
 ## feature/mfa
 
