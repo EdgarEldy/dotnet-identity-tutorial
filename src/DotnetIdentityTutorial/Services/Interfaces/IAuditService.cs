@@ -14,7 +14,7 @@ namespace DotnetIdentityTutorial.Services.Interfaces;
 /// </summary>
 public interface IAuditService
 {
-    Task LogAsync(string action, string entityType, string entityId, object? details);
+    Task LogAsync(string action, string entityType, string entityId, object? details, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// A paginated, newest-first read of the audit trail, optionally filtered by the actor who
