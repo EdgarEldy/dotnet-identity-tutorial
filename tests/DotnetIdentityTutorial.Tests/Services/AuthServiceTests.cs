@@ -191,6 +191,7 @@ public sealed class AuthServiceFixture : IAsyncLifetime
 
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IAuthService, AuthService>();
 
         ServiceProvider = services.BuildServiceProvider();
