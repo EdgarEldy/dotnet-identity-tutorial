@@ -2,8 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using DotnetIdentityTutorial.Dtos.Auth;
+using DotnetIdentityTutorial.RateLimiting;
 using DotnetIdentityTutorial.Tests.TestInfrastructure;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace DotnetIdentityTutorial.Tests.Controllers;
 
@@ -17,14 +23,20 @@ namespace DotnetIdentityTutorial.Tests.Controllers;
 /// Every <c>[Fact]</c> below constructs its own <see cref="AuthWebApplicationFactory"/> instance
 /// rather than sharing one via <c>IClassFixture&lt;T&gt;</c> - the same reasoning
 /// <c>AuthLifecycleE2ETests.Register_WithAnAlreadyRegisteredEmail_StillReturnsAccepted</c> already
-/// applies to its own second test. Each scenario below needs its own account and up to 3 calls
-/// against endpoints guarded by the shared "auth" rate limiter (Register, Login, VerifyTwoFactor -
-/// see each Fact's own comments for the exact count), and the limiter partitions by client IP,
-/// shared across every request one app instance handles regardless of which test method or
-/// account made it. A fresh factory per Fact gives each scenario its own full 5-requests/minute
-/// budget instead of them all silently competing for one shared budget the way they would under
-/// one <c>IClassFixture&lt;T&gt;</c>-shared factory, without needing to disable the limiter the
-/// way <c>AuthAccountLockoutE2ETests</c> does for its own, much larger, call count.
+/// applies to its own second test. Each scenario below needs its own account and several calls
+/// against endpoints guarded by the shared "auth" rate limiter (Register, Login, Confirm2fa,
+/// VerifyTwoFactor - see each Fact's own comments for the exact count), and the limiter partitions
+/// by client IP, shared across every request one app instance handles regardless of which test
+/// method or account made it. A fresh factory per Fact gives each scenario its own full
+/// 5-requests/minute budget instead of them all silently competing for one shared budget the way
+/// they would under one <c>IClassFixture&lt;T&gt;</c>-shared factory. The two scenarios below that
+/// still exceed 5 calls even with a fresh factory (<see cref="Login_WithTwoFactorEnabled_StopsShortOfIssuingTokens_ThenVerifyTwoFactorRejectsAnInvalidCodeAndAcceptsAValidOne"/>,
+/// <see cref="VerifyTwoFactor_WithARecoveryCode_IssuesTokensThenRejectsTheSameCodeOnASecondAttempt"/>)
+/// disable the limiter for their own app instance instead, the same
+/// <c>AuthWebApplicationFactory.WithAdditionalServices</c> pattern
+/// <c>AuthAccountLockoutE2ETests</c> already uses for the same reason: proving the 2FA code
+/// validation itself is correct is an orthogonal concern from the rate limiter, which
+/// <c>AuthRateLimiterE2ETests</c> already covers exhaustively on its own.
 /// </summary>
 public sealed class MfaLifecycleE2ETests
 {
@@ -33,7 +45,7 @@ public sealed class MfaLifecycleE2ETests
     [Fact]
     public async Task Enable2fa_ThenConfirmWithAValidCode_ActivatesTwoFactorAndReturnsTenRecoveryCodes()
     {
-        // Rate-limited calls used: Register (1), Login (2), Login (3) = 3 of 5.
+        // Rate-limited calls used: Register (1), Login (2), Confirm2fa (3), Login (4) = 4 of 5.
         await using var factory = new AuthWebApplicationFactory();
         await factory.InitializeAsync();
         var client = factory.CreateClient();
@@ -71,9 +83,10 @@ public sealed class MfaLifecycleE2ETests
     [Fact]
     public async Task Login_WithTwoFactorEnabled_StopsShortOfIssuingTokens_ThenVerifyTwoFactorRejectsAnInvalidCodeAndAcceptsAValidOne()
     {
-        // Rate-limited calls used: Register (1), Login (2), Login (3), VerifyTwoFactor invalid (4),
-        // VerifyTwoFactor valid (5) = 5 of 5.
-        await using var factory = new AuthWebApplicationFactory();
+        // Rate-limited calls used: Register (1), Login (2), Confirm2fa (3), Login (4),
+        // VerifyTwoFactor invalid (5), VerifyTwoFactor valid (6) - one over the 5/minute budget,
+        // so this scenario disables the limiter for its own app instance (see class remarks).
+        await using var factory = NoRateLimitFactory();
         await factory.InitializeAsync();
         var client = factory.CreateClient();
         var email = $"{Guid.NewGuid():N}@example.com";
@@ -135,9 +148,10 @@ public sealed class MfaLifecycleE2ETests
     [Fact]
     public async Task VerifyTwoFactor_WithARecoveryCode_IssuesTokensThenRejectsTheSameCodeOnASecondAttempt()
     {
-        // Rate-limited calls used: Register (1), Login (2), Login (3), VerifyTwoFactor recovery
-        // #1 (4), VerifyTwoFactor recovery #1 reused (5) = 5 of 5.
-        await using var factory = new AuthWebApplicationFactory();
+        // Rate-limited calls used: Register (1), Login (2), Confirm2fa (3), Login (4),
+        // VerifyTwoFactor recovery #1 (5), VerifyTwoFactor recovery #1 reused (6) - one over the
+        // 5/minute budget, so this scenario disables the limiter for its own app instance too.
+        await using var factory = NoRateLimitFactory();
         await factory.InitializeAsync();
         var client = factory.CreateClient();
         var email = $"{Guid.NewGuid():N}@example.com";
@@ -182,7 +196,7 @@ public sealed class MfaLifecycleE2ETests
     [Fact]
     public async Task Disable2fa_ThenLogin_ReturnsRealTokensDirectlyInsteadOfATwoFactorChallenge()
     {
-        // Rate-limited calls used: Register (1), Login (2), Login (3) = 3 of 5.
+        // Rate-limited calls used: Register (1), Login (2), Confirm2fa (3), Login (4) = 4 of 5.
         await using var factory = new AuthWebApplicationFactory();
         await factory.InitializeAsync();
         var client = factory.CreateClient();
@@ -214,4 +228,22 @@ public sealed class MfaLifecycleE2ETests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         return client.PostAsync($"/api/v1/{relativeUrl}", content: null);
     }
+
+    /// <summary>
+    /// Same remove-then-re-add <see cref="IServiceCollection"/> pattern
+    /// <c>AuthAccountLockoutE2ETests</c> already uses to replace the "auth" policy with an
+    /// always-permit limiter for its own app instance, reused here for the two scenarios above
+    /// whose own call count genuinely exceeds 5/minute even from a single, freshly created
+    /// account.
+    /// </summary>
+    private static AuthWebApplicationFactory NoRateLimitFactory() => AuthWebApplicationFactory.WithAdditionalServices(services =>
+    {
+        services.RemoveAll<IConfigureOptions<RateLimiterOptions>>();
+        services.Configure<RateLimiterOptions>(options =>
+        {
+            options.ConfigureRejectionResponse();
+            options.AddPolicy(RateLimiterPolicies.Auth, httpContext => RateLimitPartition.GetNoLimiter(
+                httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"));
+        });
+    });
 }
