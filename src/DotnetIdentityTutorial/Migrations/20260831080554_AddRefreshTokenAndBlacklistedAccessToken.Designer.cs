@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DotnetIdentityTutorial.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260831033357_AddRefreshTokenAndBlacklistedAccessToken")]
+    [Migration("20260831080554_AddRefreshTokenAndBlacklistedAccessToken")]
     partial class AddRefreshTokenAndBlacklistedAccessToken
     {
         /// <inheritdoc />
@@ -156,6 +156,8 @@ namespace DotnetIdentityTutorial.Migrations
                     b.HasIndex("Jti")
                         .IsUnique();
 
+                    b.HasIndex("UserId");
+
                     b.ToTable("BlacklistedAccessTokens", (string)null);
                 });
 
@@ -228,6 +230,8 @@ namespace DotnetIdentityTutorial.Migrations
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("RefreshTokens", (string)null);
                 });
@@ -350,12 +354,27 @@ namespace DotnetIdentityTutorial.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("DotnetIdentityTutorial.Models.BlacklistedAccessToken", b =>
+                {
+                    b.HasOne("DotnetIdentityTutorial.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DotnetIdentityTutorial.Models.RefreshToken", b =>
                 {
                     b.HasOne("DotnetIdentityTutorial.Models.RefreshToken", null)
                         .WithMany()
                         .HasForeignKey("ReplacedByTokenId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("DotnetIdentityTutorial.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DotnetIdentityTutorial.Models.RolePermission", b =>

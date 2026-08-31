@@ -26,6 +26,12 @@ namespace DotnetIdentityTutorial.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_BlacklistedAccessTokens", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_BlacklistedAccessTokens_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -47,6 +53,12 @@ namespace DotnetIdentityTutorial.Migrations
                 {
                     table.PrimaryKey("PK_RefreshTokens", x => x.Id);
                     table.ForeignKey(
+                        name: "FK_RefreshTokens_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
                         name: "FK_RefreshTokens_RefreshTokens_ReplacedByTokenId",
                         column: x => x.ReplacedByTokenId,
                         principalTable: "RefreshTokens",
@@ -59,6 +71,11 @@ namespace DotnetIdentityTutorial.Migrations
                 table: "BlacklistedAccessTokens",
                 column: "Jti",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BlacklistedAccessTokens_UserId",
+                table: "BlacklistedAccessTokens",
+                column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RefreshTokens_FamilyId",
@@ -75,6 +92,11 @@ namespace DotnetIdentityTutorial.Migrations
                 table: "RefreshTokens",
                 column: "TokenHash",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RefreshTokens_UserId",
+                table: "RefreshTokens",
+                column: "UserId");
         }
 
         /// <inheritdoc />
