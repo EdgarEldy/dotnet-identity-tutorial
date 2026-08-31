@@ -1,3 +1,4 @@
+using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.Dtos.User;
 using DotnetIdentityTutorial.Exceptions;
 using DotnetIdentityTutorial.Identity;
@@ -18,24 +19,38 @@ namespace DotnetIdentityTutorial.Services.Implementations;
 /// </summary>
 public sealed class UserAdminService : IUserAdminService
 {
+    private const int MaxPageSize = 100;
+
     // "Effectively indefinite until an explicit Unlock", not DateTimeOffset.MaxValue (some
     // database column types reject a value that extreme) - 100 years from "now" per
     // TimeProvider is far enough out that it never expires on its own in practice.
     private static readonly TimeSpan LockDuration = TimeSpan.FromDays(365 * 100);
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly AppDbContext _dbContext;
     private readonly TimeProvider _timeProvider;
     private readonly IAuditService _auditService;
 
-    public UserAdminService(UserManager<ApplicationUser> userManager, TimeProvider timeProvider, IAuditService auditService)
+    public UserAdminService(UserManager<ApplicationUser> userManager, AppDbContext dbContext, TimeProvider timeProvider, IAuditService auditService)
     {
         _userManager = userManager;
+        _dbContext = dbContext;
         _timeProvider = timeProvider;
         _auditService = auditService;
     }
 
     public async Task<(IReadOnlyList<UserResponse> Users, int TotalCount)> GetUsersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
+        if (page < 1)
+        {
+            throw new BusinessRuleException("page must be 1 or greater.");
+        }
+
+        if (pageSize is < 1 or > MaxPageSize)
+        {
+            throw new BusinessRuleException($"pageSize must be between 1 and {MaxPageSize}.");
+        }
+
         var totalCount = await _userManager.Users.CountAsync(cancellationToken);
 
         var users = await _userManager.Users
@@ -44,11 +59,22 @@ public sealed class UserAdminService : IUserAdminService
             .Take(pageSize)
             .ToListAsync(cancellationToken);
 
-        var responses = new List<UserResponse>(users.Count);
-        foreach (var user in users)
-        {
-            responses.Add(await MapAsync(user));
-        }
+        // A single join covering every user on the page's roles, instead of one
+        // UserManager.GetRolesAsync call per user (an N+1 query pattern that would scale
+        // linearly with page size otherwise).
+        var userIds = users.Select(u => u.Id).ToList();
+        var roleNamesByUserId = await _dbContext.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_dbContext.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name! })
+            .ToListAsync(cancellationToken);
+
+        var rolesLookup = roleNamesByUserId
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.RoleName).ToList());
+
+        var responses = users
+            .Select(user => Map(user, rolesLookup.GetValueOrDefault(user.Id, [])))
+            .ToList();
 
         return (responses, totalCount);
     }
@@ -58,7 +84,8 @@ public sealed class UserAdminService : IUserAdminService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new ResourceNotFoundException($"User {userId} was not found.");
 
-        return await MapAsync(user);
+        var roles = await _userManager.GetRolesAsync(user);
+        return Map(user, roles.ToList());
     }
 
     public async Task LockUserAsync(int userId, CancellationToken cancellationToken = default)
@@ -102,15 +129,14 @@ public sealed class UserAdminService : IUserAdminService
         await _auditService.LogAsync("Unlock", "User", userId.ToString(), null);
     }
 
-    private async Task<UserResponse> MapAsync(ApplicationUser user)
+    private static UserResponse Map(ApplicationUser user, IReadOnlyList<string> roles)
     {
-        var roles = await _userManager.GetRolesAsync(user);
         return new UserResponse(
             user.Id,
             user.Email ?? string.Empty,
             user.FirstName,
             user.LastName,
-            roles.ToList(),
+            roles,
             user.LockoutEnd);
     }
 }
