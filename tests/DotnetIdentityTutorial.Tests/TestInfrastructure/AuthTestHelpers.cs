@@ -89,9 +89,10 @@ internal static class AuthTestHelpers
     /// Enables 2FA for the account identified by <paramref name="accessToken"/> and immediately
     /// confirms it with a real TOTP code computed (via <see cref="TotpTestHelper"/>) from the
     /// shared key <c>Enable2fa</c> hands back, activating 2FA and returning the one-time set of
-    /// recovery codes <c>Confirm2fa</c> generates. Neither call is rate-limited (only
-    /// Login/Register/ForgotPassword/VerifyTwoFactor carry <c>[EnableRateLimiting]</c>), so this
-    /// doesn't count against a test's "auth" policy budget.
+    /// recovery codes <c>Confirm2fa</c> generates. <c>Enable2fa</c> itself is not rate-limited,
+    /// but <c>Confirm2fa</c> is (a guessable TOTP code is exactly as brute-forceable at setup
+    /// time as it is once 2FA is already active), so this counts as one call against a caller's
+    /// "auth" policy budget.
     /// </summary>
     public static async Task<(string SharedKey, IReadOnlyList<string> RecoveryCodes)> EnableAndConfirmTwoFactorAsync(
         HttpClient client, string accessToken)
