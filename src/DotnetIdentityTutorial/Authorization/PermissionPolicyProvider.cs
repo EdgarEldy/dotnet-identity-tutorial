@@ -28,7 +28,12 @@ public sealed class PermissionPolicyProvider : IAuthorizationPolicyProvider
 
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
+        // RequireAuthenticatedUser() is explicit on purpose rather than relying on the
+        // incidental fact that an anonymous principal happens to carry no "permission" claims:
+        // that implicit property would stop holding the moment any other authentication
+        // handler could attach claims to a principal without also authenticating it.
         var policy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
             .AddRequirements(new PermissionRequirement(policyName))
             .Build();
 
