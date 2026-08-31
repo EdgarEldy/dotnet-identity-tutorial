@@ -204,6 +204,10 @@ public sealed class UserAdminServiceFixture : IAsyncLifetime
         services.AddLogging();
         services.AddSingleton<TimeProvider>(TimeProvider);
 
+        // See RbacServiceFixture's identical registration for why this is needed now that
+        // AuditService is a real, AppDbContext-backed implementation.
+        services.AddHttpContextAccessor();
+
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(_postgresContainer.GetConnectionString()));
 

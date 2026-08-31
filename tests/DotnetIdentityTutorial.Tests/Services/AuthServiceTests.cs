@@ -160,6 +160,12 @@ public sealed class AuthServiceFixture : IAsyncLifetime
         services.AddLogging();
         services.AddSingleton<TimeProvider>(new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)));
 
+        // AuditService (now a real, AppDbContext-backed implementation as of
+        // feature/audit-logging) needs IHttpContextAccessor to resolve an actor - there is no
+        // real HTTP request in this service-layer test, so it resolves to a null actor, which is
+        // the expected, documented behavior for a call with no ambient HttpContext.
+        services.AddHttpContextAccessor();
+
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
