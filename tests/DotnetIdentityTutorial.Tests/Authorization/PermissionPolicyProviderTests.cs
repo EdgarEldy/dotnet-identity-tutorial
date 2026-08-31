@@ -1,5 +1,6 @@
 using DotnetIdentityTutorial.Authorization;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.Extensions.Options;
 
 namespace DotnetIdentityTutorial.Tests.Authorization;
@@ -29,6 +30,26 @@ public class PermissionPolicyProviderTests
         Assert.NotNull(policy);
         var requirement = Assert.Single(policy!.Requirements.OfType<PermissionRequirement>());
         Assert.Equal(arbitraryPermission, requirement.Permission);
+    }
+
+    [Fact]
+    public async Task GetPolicyAsync_ReturnsPolicyThatAlsoRequiresAnAuthenticatedUser()
+    {
+        var provider = BuildProvider();
+
+        var policy = await provider.GetPolicyAsync("WIDGET:FROBNICATE");
+
+        Assert.Contains(policy!.Requirements, r => r is DenyAnonymousAuthorizationRequirement);
+    }
+
+    [Fact]
+    public async Task GetDefaultPolicyAsync_StillRequiresAnAuthenticatedUser()
+    {
+        var provider = BuildProvider();
+
+        var policy = await provider.GetDefaultPolicyAsync();
+
+        Assert.Contains(policy.Requirements, r => r is DenyAnonymousAuthorizationRequirement);
     }
 
     [Fact]
