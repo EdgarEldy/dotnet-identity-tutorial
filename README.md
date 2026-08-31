@@ -343,7 +343,7 @@ DotnetIdentityTutorial/
 
 - [x] `Microsoft.AspNetCore.Authentication.Google`, configured with a client id/secret from configuration
 - [x] `ExternalLoginController`: initiates the challenge, handles the callback (`UserManager.GetExternalLoginInfoAsync`, `AddLoginAsync` for a new user or `FindByLoginAsync` for a returning one), issues tokens via `ITokenService` on success - an external login still goes through the exact same claims/token pipeline as a password login, no separate code path
-- [ ] Tests: a first-time external sign-in creating a linked `ApplicationUser`, a returning one resolving to the existing account
+- [x] Tests: a first-time external sign-in creating a linked `ApplicationUser`, a returning one resolving to the existing account
 
 ## Order of work
 
