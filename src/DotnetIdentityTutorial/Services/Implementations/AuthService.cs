@@ -19,9 +19,12 @@ public sealed class AuthService : IAuthService
     /// <summary>
     /// The role every self-registered account gets - matches the seeded role name in
     /// <c>Data/DbInitializer</c>. Only <c>ADMIN</c> grants extra permissions beyond this by
-    /// design; nobody can self-register into <c>ADMIN</c> through this endpoint.
+    /// design; nobody can self-register into <c>ADMIN</c> through this endpoint. Internal rather
+    /// than private: <see cref="ExternalLoginService"/> assigns the exact same default role to a
+    /// brand-new Google-created account, and a single source of truth means the two account-
+    /// creation paths can't silently drift apart if this name ever changes.
     /// </summary>
-    private const string DefaultRoleName = "USER";
+    internal const string DefaultRoleName = "USER";
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
