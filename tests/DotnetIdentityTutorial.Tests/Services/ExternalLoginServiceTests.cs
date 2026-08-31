@@ -143,6 +143,73 @@ public sealed class ExternalLoginServiceTests : IClassFixture<ExternalLoginServi
     }
 
     [Fact]
+    public async Task HandleExternalLoginCallbackAsync_ExistingUnconfirmedAccount_ConfirmsItOnLink()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var externalLoginService = scope.ServiceProvider.GetRequiredService<IExternalLoginService>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var email = $"{Guid.NewGuid():N}@example.com";
+        var unconfirmedUser = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            FirstName = "Unconfirmed",
+            LastName = "User",
+            EmailConfirmed = false,
+        };
+        var createResult = await userManager.CreateAsync(unconfirmedUser, "Passw0rd1");
+        if (!createResult.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Test setup failed to create the unconfirmed user: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
+        }
+
+        var info = BuildExternalLoginInfo(email, Guid.NewGuid().ToString("N"), "Unconfirmed", "User");
+
+        // Google already proved ownership of this exact email address before ever issuing the
+        // claim - the same proof this project's own ConfirmEmail link exists to establish - so
+        // linking must confirm the account rather than leaving it permanently unreachable by
+        // password login (which would keep rejecting it via IsNotAllowed forever otherwise).
+        var tokens = await externalLoginService.HandleExternalLoginCallbackAsync(info);
+
+        Assert.False(string.IsNullOrWhiteSpace(tokens.AccessToken));
+
+        var confirmedUser = await userManager.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException("Test setup failed: the user disappeared.");
+        Assert.True(confirmedUser.EmailConfirmed);
+    }
+
+    [Fact]
+    public async Task HandleExternalLoginCallbackAsync_LockedOutAccount_ThrowsBusinessRuleException()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var externalLoginService = scope.ServiceProvider.GetRequiredService<IExternalLoginService>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var email = $"{Guid.NewGuid():N}@example.com";
+        var providerKey = Guid.NewGuid().ToString("N");
+        var firstInfo = BuildExternalLoginInfo(email, providerKey, "Locked", "Out");
+        await externalLoginService.HandleExternalLoginCallbackAsync(firstInfo);
+
+        var user = await userManager.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException("Test setup failed: no user was created.");
+
+        // Simulates an admin locking the account (UserAdminService.LockUserAsync) between the
+        // first and second sign-in, the same real API this project's own account-lockout tests
+        // use rather than faking a private field.
+        await userManager.SetLockoutEnabledAsync(user, true);
+        await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(15));
+
+        // A second callback resolves the SAME user via FindByLoginAsync's fast path - without an
+        // explicit lockout check, this would still hand back real tokens, bypassing the exact
+        // same lockout AuthService.LoginAsync enforces on the password path.
+        var secondInfo = BuildExternalLoginInfo(email, providerKey, "Locked", "Out");
+        await Assert.ThrowsAsync<BusinessRuleException>(
+            () => externalLoginService.HandleExternalLoginCallbackAsync(secondInfo));
+    }
+
+    [Fact]
     public async Task HandleExternalLoginCallbackAsync_NoEmailClaim_ThrowsBusinessRuleException()
     {
         using var scope = _fixture.ServiceProvider.CreateScope();
