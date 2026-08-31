@@ -99,7 +99,7 @@ public sealed class AuthService : IAuthService
         ThrowIfFailed(result, "Email confirmation");
     }
 
-    public async Task<TokenResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user is null)
@@ -114,9 +114,9 @@ public sealed class AuthService : IAuthService
         // with Identity's own lockout counting - a failed attempt increments AccessFailedCount
         // and locks the account after Lockout.MaxFailedAccessAttempts - and its IsNotAllowed
         // result already reflects RequireConfirmedAccount without this method re-checking
-        // EmailConfirmed itself. No 2FA branch here yet: LoginAsync always issues tokens
-        // directly on success, per feature/mfa's own note that it - not this branch - is what
-        // introduces the "2FA required" partial result.
+        // EmailConfirmed itself. RequiresTwoFactor is set internally by Identity based on
+        // user.TwoFactorEnabled - unchanged by this branch, just handled below now instead of
+        // being unreachable.
         var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
 
         if (result.IsLockedOut)
@@ -129,9 +129,48 @@ public sealed class AuthService : IAuthService
             throw new BusinessRuleException("This account is not allowed to sign in yet. Confirm your email first.");
         }
 
+        if (result.RequiresTwoFactor)
+        {
+            // The password check already succeeded at this point - what's missing is the second
+            // factor, not proof of identity itself. Stop short of issuing real tokens: instead
+            // hand back a short-lived challenge token (the "partial login ticket") that only
+            // VerifyTwoFactorAsync can exchange for a real token pair, and only after a valid
+            // TOTP/recovery code. See ITokenService.IssueTwoFactorChallengeTokenAsync's own
+            // remarks for why a signed JWT with a different audience - not Identity's own
+            // two-factor cookie - is what makes this safe in a stateless API.
+            var twoFactorToken = await _tokenService.IssueTwoFactorChallengeTokenAsync(user, cancellationToken);
+            return new LoginResult(null, twoFactorToken);
+        }
+
         if (!result.Succeeded)
         {
             throw new BusinessRuleException("Invalid email or password.");
+        }
+
+        var tokens = await _tokenService.IssueTokensAsync(user, cancellationToken);
+        return new LoginResult(tokens, null);
+    }
+
+    public async Task<TokenResponse> VerifyTwoFactorAsync(VerifyTwoFactorRequest request, CancellationToken cancellationToken = default)
+    {
+        var userId = await _tokenService.ValidateTwoFactorChallengeTokenAsync(request.TwoFactorToken, cancellationToken);
+
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new ResourceNotFoundException($"User {userId} was not found.");
+
+        // Tries a TOTP code first, then falls back to a recovery code - never revealing to the
+        // caller which of the two was attempted, only whether the overall attempt succeeded.
+        // Distinguishing the two failure modes would tell an attacker something about the shape
+        // of the code they submitted, the same anti-enumeration reasoning LoginAsync's own
+        // generic "Invalid email or password" already follows.
+        var isValidTotp = await _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, request.Code);
+        if (!isValidTotp)
+        {
+            var recoveryResult = await _userManager.RedeemTwoFactorRecoveryCodeAsync(user, request.Code);
+            if (!recoveryResult.Succeeded)
+            {
+                throw new BusinessRuleException("Invalid two-factor code.");
+            }
         }
 
         return await _tokenService.IssueTokensAsync(user, cancellationToken);

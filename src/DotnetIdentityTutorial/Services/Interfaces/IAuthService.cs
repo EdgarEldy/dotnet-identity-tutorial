@@ -34,12 +34,27 @@ public interface IAuthService
     /// <summary>
     /// Validates credentials via <c>SignInManager.CheckPasswordSignInAsync</c> (which correctly
     /// integrates with Identity's own lockout counting and reflects
-    /// <c>RequireConfirmedAccount</c> through <c>SignInResult.IsNotAllowed</c>) and, on success,
-    /// issues a fresh token pair via <see cref="ITokenService"/>. Throws
-    /// <see cref="Exceptions.BusinessRuleException"/> for a locked-out, not-allowed
-    /// (unconfirmed), or otherwise failed sign-in.
+    /// <c>RequireConfirmedAccount</c> through <c>SignInResult.IsNotAllowed</c>). On success, if
+    /// the account does not have 2FA enabled, issues a fresh token pair via
+    /// <see cref="ITokenService"/> directly. If it does, stops short of issuing real tokens and
+    /// instead returns a short-lived two-factor challenge token - see
+    /// <see cref="LoginResult"/>/<see cref="VerifyTwoFactorAsync"/> for how the caller completes
+    /// the flow. Throws <see cref="Exceptions.BusinessRuleException"/> for a locked-out,
+    /// not-allowed (unconfirmed), or otherwise failed sign-in.
     /// </summary>
-    Task<TokenResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
+    Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Completes a login that returned a two-factor challenge. Validates
+    /// <see cref="VerifyTwoFactorRequest.TwoFactorToken"/> via <c>ITokenService</c>, then tries
+    /// <see cref="VerifyTwoFactorRequest.Code"/> first as a TOTP code and, if that fails, as a
+    /// recovery code. Throws <see cref="Exceptions.BusinessRuleException"/> with a generic
+    /// message if neither succeeds - deliberately not revealing which check failed, the same
+    /// anti-enumeration spirit as <see cref="LoginAsync"/>'s own generic "Invalid email or
+    /// password". Issues a full token pair via <see cref="ITokenService"/> only once a code
+    /// actually verifies.
+    /// </summary>
+    Task<TokenResponse> VerifyTwoFactorAsync(VerifyTwoFactorRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Thin delegation to <c>ITokenService.RefreshAsync</c>.
