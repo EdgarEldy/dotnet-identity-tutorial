@@ -279,6 +279,31 @@ public class TokenServiceTests : IClassFixture<TokenServiceFixture>
     }
 
     /// <summary>
+    /// Proves the challenge token is bound to the user's <c>SecurityStamp</c> at issuance, the
+    /// same staleness protection <see cref="RefreshToken"/> already applies via
+    /// <see cref="RefreshToken.SecurityStampAtIssuance"/>. Without this, a password reset landing
+    /// in the gap between <c>Login</c> returning a challenge and <c>VerifyTwoFactor</c> consuming
+    /// it would go unnoticed - this test rotates the stamp directly via
+    /// <c>UserManager.UpdateSecurityStampAsync</c> (the same primitive Identity itself calls
+    /// internally on a real password change) rather than actually changing the password, since
+    /// the point under test is the stamp comparison itself, not password-change plumbing already
+    /// covered by <c>AuthServiceTests.ChangePasswordAsync_RevokesEveryOutstandingRefreshTokenFamily</c>.
+    /// </summary>
+    [Fact]
+    public async Task ValidateTwoFactorChallengeTokenAsync_AfterSecurityStampRotates_ThrowsBusinessRuleException()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+        var tokenService = CreateTokenServiceWithClock(scope, new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var challengeToken = await tokenService.IssueTwoFactorChallengeTokenAsync(user);
+        await userManager.UpdateSecurityStampAsync(user);
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => tokenService.ValidateTwoFactorChallengeTokenAsync(challengeToken));
+    }
+
+    /// <summary>
     /// Builds a <see cref="TokenService"/> directly (not resolved from <paramref name="scope"/>'s
     /// own DI container) so a test can supply its own <see cref="TimeProvider"/> instead of the
     /// fixture-wide <see cref="TokenServiceFixture.TimeProvider"/> singleton every other test in
