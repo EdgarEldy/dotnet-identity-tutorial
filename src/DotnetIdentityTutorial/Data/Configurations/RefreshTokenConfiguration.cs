@@ -1,3 +1,4 @@
+using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -30,6 +31,17 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         // Looked up whenever an entire family needs to be revoked at once: reuse detection
         // (RefreshAsync) and a SecurityStamp mismatch both revoke every row sharing a FamilyId.
         builder.HasIndex(rt => rt.FamilyId);
+
+        // Looked up on every logout (RevokeAsync revokes every active token for a user).
+        builder.HasIndex(rt => rt.UserId);
+
+        // Explicit FK to ApplicationUser, matching every other user-owned row in this project
+        // (e.g. RolePermission's FKs) - Cascade so deleting a user doesn't leave orphaned
+        // refresh tokens sitting around until ExpiredTokenCleanupService eventually catches them.
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(rt => rt.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Self-referencing: the token a given row was rotated into. SetNull rather than Cascade
         // or Restrict - if the successor row is ever removed by ExpiredTokenCleanupService

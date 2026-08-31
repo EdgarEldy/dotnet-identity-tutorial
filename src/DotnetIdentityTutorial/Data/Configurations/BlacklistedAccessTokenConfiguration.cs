@@ -1,3 +1,4 @@
+using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -23,5 +24,12 @@ public class BlacklistedAccessTokenConfiguration : IEntityTypeConfiguration<Blac
         // PermissionConfiguration uses for (Resource, Action).
         builder.HasIndex(b => b.Jti)
             .IsUnique();
+
+        // Explicit FK to ApplicationUser, matching every other user-owned row in this project.
+        // Cascade so deleting a user doesn't leave orphaned blacklist rows behind.
+        builder.HasOne<ApplicationUser>()
+            .WithMany()
+            .HasForeignKey(b => b.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
