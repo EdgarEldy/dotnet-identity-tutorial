@@ -26,6 +26,7 @@ public sealed class AuthService : IAuthService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
+    private readonly IAuditService _auditService;
     private readonly IConfiguration _configuration;
 
     public AuthService(
@@ -33,12 +34,14 @@ public sealed class AuthService : IAuthService
         SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
         IEmailService emailService,
+        IAuditService auditService,
         IConfiguration configuration)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _tokenService = tokenService;
         _emailService = emailService;
+        _auditService = auditService;
         _configuration = configuration;
     }
 
@@ -55,19 +58,34 @@ public sealed class AuthService : IAuthService
         var createResult = await _userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
-            var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
-            throw new BusinessRuleException($"Registration failed: {errors}");
+            if (IsDuplicateAccountError(createResult))
+            {
+                // Same outcome as a fresh registration (the controller returns 202 Accepted
+                // either way, no exception thrown): a distinguishable response for "this email
+                // is already taken" would make Register a user-enumeration oracle, the same
+                // problem ForgotPasswordAsync's own identical-response rule exists to prevent -
+                // LoginAsync above already generalizes that reasoning past ForgotPassword alone.
+                return;
+            }
+
+            ThrowIfFailed(createResult, "Registration");
         }
 
         var roleResult = await _userManager.AddToRoleAsync(user, DefaultRoleName);
         if (!roleResult.Succeeded)
         {
-            var errors = string.Join(", ", roleResult.Errors.Select(e => e.Description));
-            throw new BusinessRuleException($"Failed to assign the default role: {errors}");
+            // CreateAsync already committed the user row; without this compensating delete a
+            // transient role-assignment failure would leave a permanent, roleless, unconfirmed
+            // account with no confirmation email ever sent and no way to retry registration for
+            // that email again.
+            await _userManager.DeleteAsync(user);
+            ThrowIfFailed(roleResult, "Default role assignment");
         }
 
+        await _auditService.LogAsync("AssignRole", "User", user.Id.ToString(), new { Role = DefaultRoleName });
+
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-        var confirmationLink = BuildLink("Auth/ConfirmEmail", ("userId", user.Id.ToString()), ("token", token));
+        var confirmationLink = BuildApiLink("Auth/ConfirmEmail", ("userId", user.Id.ToString()), ("token", token));
 
         await _emailService.SendConfirmationEmailAsync(user.Email!, confirmationLink);
     }
@@ -78,11 +96,7 @@ public sealed class AuthService : IAuthService
             ?? throw new ResourceNotFoundException($"User {userId} was not found.");
 
         var result = await _userManager.ConfirmEmailAsync(user, token);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new BusinessRuleException($"Email confirmation failed: {errors}");
-        }
+        ThrowIfFailed(result, "Email confirmation");
     }
 
     public async Task<TokenResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -140,7 +154,13 @@ public sealed class AuthService : IAuthService
         if (user is not null)
         {
             var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            var resetLink = BuildLink("Auth/ResetPassword", ("email", user.Email!), ("token", token));
+            // Unlike the ConfirmEmail link, this can't point at the API's own POST endpoint - a
+            // browser navigating to a link only ever issues a GET, and resetting a password
+            // needs a form to collect the new password anyway. This targets a frontend route
+            // (no "/api/v1" prefix) that would collect the new password and then call
+            // POST /api/v1/Auth/ResetPassword itself; this tutorial has no frontend to host that
+            // route, so EmailService just logs the link instead of it being clickable end to end.
+            var resetLink = BuildFrontendLink("reset-password", ("email", user.Email!), ("token", token));
             await _emailService.SendPasswordResetEmailAsync(user.Email!, resetLink);
         }
         else
@@ -164,11 +184,7 @@ public sealed class AuthService : IAuthService
         // family reject at its SecurityStamp comparison in TokenService.RefreshAsync afterward.
         // Nothing extra is needed here for that invariant to hold.
         var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new BusinessRuleException($"Password reset failed: {errors}");
-        }
+        ThrowIfFailed(result, "Password reset");
     }
 
     public async Task ChangePasswordAsync(int userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
@@ -179,11 +195,7 @@ public sealed class AuthService : IAuthService
         // Same automatic SecurityStamp rotation as ResetPasswordAsync above - ChangePasswordAsync
         // goes through the same internal UpdatePasswordHash path in UserManager.
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new BusinessRuleException($"Password change failed: {errors}");
-        }
+        ThrowIfFailed(result, "Password change");
     }
 
     public Task LogoutAsync(int userId, string accessTokenJti, DateTimeOffset accessTokenExpiresAt, CancellationToken cancellationToken = default)
@@ -211,6 +223,22 @@ public sealed class AuthService : IAuthService
     }
 
     /// <summary>
+    /// Builds a link at this API's own <c>/api/v1/...</c> route - only valid for a link meant to
+    /// be navigated to directly, i.e. one bound by <c>[HttpGet]</c>/<c>[FromQuery]</c> on the
+    /// receiving end, such as <c>ConfirmEmail</c>.
+    /// </summary>
+    private string BuildApiLink(string relativePath, params (string Key, string Value)[] queryParameters)
+        => BuildLink($"api/v1/{relativePath}", queryParameters);
+
+    /// <summary>
+    /// Builds a link with no <c>/api/v1</c> prefix, for a route meant to be hosted by a frontend
+    /// application rather than this API directly - see <see cref="ForgotPasswordAsync"/>'s own
+    /// remarks on why <c>ResetPassword</c> needs this instead of <see cref="BuildApiLink"/>.
+    /// </summary>
+    private string BuildFrontendLink(string relativePath, params (string Key, string Value)[] queryParameters)
+        => BuildLink(relativePath, queryParameters);
+
+    /// <summary>
     /// Builds an absolute link against the configured <c>App:BaseUrl</c> (a placeholder base URL
     /// for this tutorial - see appsettings.json), URL-encoding every query value, most
     /// importantly the token itself, which can contain characters "+"/"/" that are not safe
@@ -222,6 +250,31 @@ public sealed class AuthService : IAuthService
             ?? throw new InvalidOperationException("Missing 'App:BaseUrl' configuration value.");
 
         var query = string.Join("&", queryParameters.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
-        return $"{baseUrl}/api/v1/{relativePath}?{query}";
+        return $"{baseUrl}/{relativePath}?{query}";
+    }
+
+    /// <summary>
+    /// A failed email/username collision is the only <see cref="IdentityResult"/> outcome that
+    /// must never surface as a distinguishable error - see the enumeration-prevention remark in
+    /// <see cref="RegisterAsync"/> above.
+    /// </summary>
+    private static bool IsDuplicateAccountError(IdentityResult result)
+        => result.Errors.All(e => e.Code is "DuplicateUserName" or "DuplicateEmail");
+
+    /// <summary>
+    /// Shared translation from a failed <see cref="IdentityResult"/> to the project's own
+    /// <see cref="BusinessRuleException"/>, used at every call site above except
+    /// <see cref="RegisterAsync"/>'s account-creation step (that one needs the enumeration-safe
+    /// branch above instead of an unconditional throw).
+    /// </summary>
+    private static void ThrowIfFailed(IdentityResult result, string action)
+    {
+        if (result.Succeeded)
+        {
+            return;
+        }
+
+        var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+        throw new BusinessRuleException($"{action} failed: {errors}");
     }
 }
