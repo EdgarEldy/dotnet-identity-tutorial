@@ -93,6 +93,7 @@ public class UserAdminServiceTests : IClassFixture<UserAdminServiceFixture>
         using var scope = _fixture.ServiceProvider.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var userAdminService = scope.ServiceProvider.GetRequiredService<IUserAdminService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var user = await CreateUserAsync(userManager);
 
         await userAdminService.LockUserAsync(user.Id);
@@ -105,6 +106,15 @@ public class UserAdminServiceTests : IClassFixture<UserAdminServiceFixture>
 
         var unlockedResponse = await userAdminService.GetUserByIdAsync(user.Id);
         Assert.Null(unlockedResponse.LockoutEnd);
+
+        // Both LockUserAsync and UnlockUserAsync call IAuditService.LogAsync - feature/audit-
+        // logging's own checklist item, re-run against feature/rbac's existing test rather than
+        // duplicated into a parallel test file.
+        await dbContext.AuditLogs
+            .SingleAsync(a => a.Action == "Lock" && a.EntityType == "User" && a.EntityId == user.Id.ToString());
+
+        await dbContext.AuditLogs
+            .SingleAsync(a => a.Action == "Unlock" && a.EntityType == "User" && a.EntityId == user.Id.ToString());
     }
 
     [Fact]
