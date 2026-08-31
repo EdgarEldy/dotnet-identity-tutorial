@@ -32,15 +32,21 @@ public sealed class AuditService : IAuditService
     private readonly AppDbContext _dbContext;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger<AuditService> _logger;
 
-    public AuditService(AppDbContext dbContext, IHttpContextAccessor httpContextAccessor, TimeProvider timeProvider)
+    public AuditService(
+        AppDbContext dbContext,
+        IHttpContextAccessor httpContextAccessor,
+        TimeProvider timeProvider,
+        ILogger<AuditService> logger)
     {
         _dbContext = dbContext;
         _httpContextAccessor = httpContextAccessor;
         _timeProvider = timeProvider;
+        _logger = logger;
     }
 
-    public async Task LogAsync(string action, string entityType, string entityId, object? details)
+    public async Task LogAsync(string action, string entityType, string entityId, object? details, CancellationToken cancellationToken = default)
     {
         var auditLog = new AuditLog
         {
@@ -53,7 +59,27 @@ public sealed class AuditService : IAuditService
         };
 
         _dbContext.AuditLogs.Add(auditLog);
-        await _dbContext.SaveChangesAsync();
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            // The real mutation this call is recording (RbacService/UserAdminService's own
+            // SaveChangesAsync or UserManager call) has already committed by the time LogAsync
+            // runs - this class's own remarks state an audit-logging concern must never be the
+            // reason a real mutation fails, so a failure to persist the audit row itself is
+            // logged and swallowed rather than propagated as a 500 for an operation that
+            // genuinely succeeded.
+            _logger.LogError(ex, "Failed to persist audit log entry for {Action} on {EntityType} {EntityId}", action, entityType, entityId);
+
+            // AuditService shares its AppDbContext with whichever RbacService/UserAdminService
+            // call site is calling it (same DI scope), so a failed AuditLog left in the change
+            // tracker would otherwise be retried on that context's next unrelated
+            // SaveChangesAsync call within the same request.
+            _dbContext.Entry(auditLog).State = EntityState.Detached;
+        }
     }
 
     public async Task<(IReadOnlyList<AuditLogResponse> Logs, int TotalCount)> GetAuditLogsAsync(
@@ -73,7 +99,19 @@ public sealed class AuditService : IAuditService
             throw new BusinessRuleException($"pageSize must be between 1 and {MaxPageSize}.");
         }
 
-        var query = _dbContext.AuditLogs.AsQueryable();
+        // (page - 1) * pageSize is computed in long arithmetic and range-checked before ever
+        // being cast back to the int Skip requires - page has no upper bound of its own, so a
+        // large enough value would otherwise overflow Int32 and wrap into an unexpected (often
+        // negative) offset, something the database itself may reject with an unhandled exception
+        // rather than the documented BusinessRuleException every other bad-pagination-input case
+        // above already produces.
+        var skip = (long)(page - 1) * pageSize;
+        if (skip > int.MaxValue)
+        {
+            throw new BusinessRuleException("page is too large for the given pageSize.");
+        }
+
+        IQueryable<AuditLog> query = _dbContext.AuditLogs;
 
         if (actorUserId is not null)
         {
@@ -91,7 +129,7 @@ public sealed class AuditService : IAuditService
         // almost always what a reader is looking for.
         var logs = await query
             .OrderByDescending(a => a.CreatedAt)
-            .Skip((page - 1) * pageSize)
+            .Skip((int)skip)
             .Take(pageSize)
             .Select(a => new AuditLogResponse(a.Id, a.ActorUserId, a.Action, a.EntityType, a.EntityId, a.Details, a.CreatedAt))
             .ToListAsync(cancellationToken);
