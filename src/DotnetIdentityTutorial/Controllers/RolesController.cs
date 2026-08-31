@@ -24,17 +24,17 @@ public sealed class RolesController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "ROLE:READ")]
-    public async Task<ActionResult<IReadOnlyList<RoleResponse>>> GetRoles()
+    public async Task<ActionResult<IReadOnlyList<RoleResponse>>> GetRoles(CancellationToken cancellationToken)
     {
-        var roles = await _rbacService.GetRolesAsync();
+        var roles = await _rbacService.GetRolesAsync(cancellationToken);
         return Ok(roles);
     }
 
     [HttpPost]
     [Authorize(Policy = "ROLE:WRITE")]
-    public async Task<ActionResult<RoleResponse>> CreateRole(RoleRequest request)
+    public async Task<ActionResult<RoleResponse>> CreateRole(RoleRequest request, CancellationToken cancellationToken)
     {
-        var role = await _rbacService.CreateRoleAsync(request);
+        var role = await _rbacService.CreateRoleAsync(request, cancellationToken);
 
         // This branch's endpoint table has no GET /api/v1/Roles/{id}, only the list endpoint,
         // so there is no action for CreatedAtAction to reference - the Location header is built
@@ -45,17 +45,17 @@ public sealed class RolesController : ControllerBase
 
     [HttpPost("{id:int}/Permissions/{permissionId:int}")]
     [Authorize(Policy = "ROLE:WRITE")]
-    public async Task<IActionResult> AssignPermission(int id, int permissionId)
+    public async Task<IActionResult> AssignPermission(int id, int permissionId, CancellationToken cancellationToken)
     {
-        await _rbacService.AssignPermissionToRoleAsync(id, permissionId);
+        await _rbacService.AssignPermissionToRoleAsync(id, permissionId, cancellationToken);
         return NoContent();
     }
 
     [HttpDelete("{id:int}/Permissions/{permissionId:int}")]
     [Authorize(Policy = "ROLE:WRITE")]
-    public async Task<IActionResult> RemovePermission(int id, int permissionId)
+    public async Task<IActionResult> RemovePermission(int id, int permissionId, CancellationToken cancellationToken)
     {
-        await _rbacService.RemovePermissionFromRoleAsync(id, permissionId);
+        await _rbacService.RemovePermissionFromRoleAsync(id, permissionId, cancellationToken);
         return NoContent();
     }
 }

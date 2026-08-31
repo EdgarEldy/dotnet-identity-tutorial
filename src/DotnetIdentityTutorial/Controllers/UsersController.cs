@@ -33,9 +33,9 @@ public sealed class UsersController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "USER:READ")]
-    public async Task<ActionResult<IReadOnlyList<UserResponse>>> GetUsers([FromQuery] int page = 1, [FromQuery] int pageSize = DefaultPageSize)
+    public async Task<ActionResult<IReadOnlyList<UserResponse>>> GetUsers([FromQuery] int page = 1, [FromQuery] int pageSize = DefaultPageSize, CancellationToken cancellationToken = default)
     {
-        var (users, totalCount) = await _userAdminService.GetUsersAsync(page, pageSize);
+        var (users, totalCount) = await _userAdminService.GetUsersAsync(page, pageSize, cancellationToken);
 
         var nextLink = page * pageSize < totalCount
             ? Url.Action(nameof(GetUsers), new { page = page + 1, pageSize })
@@ -51,41 +51,41 @@ public sealed class UsersController : ControllerBase
 
     [HttpGet("{id:int}")]
     [Authorize(Policy = "USER:READ")]
-    public async Task<ActionResult<UserResponse>> GetUser(int id)
+    public async Task<ActionResult<UserResponse>> GetUser(int id, CancellationToken cancellationToken)
     {
-        var user = await _userAdminService.GetUserByIdAsync(id);
+        var user = await _userAdminService.GetUserByIdAsync(id, cancellationToken);
         return Ok(user);
     }
 
     [HttpPatch("{id:int}/Lock")]
     [Authorize(Policy = "USER:WRITE")]
-    public async Task<IActionResult> Lock(int id)
+    public async Task<IActionResult> Lock(int id, CancellationToken cancellationToken)
     {
-        await _userAdminService.LockUserAsync(id);
+        await _userAdminService.LockUserAsync(id, cancellationToken);
         return NoContent();
     }
 
     [HttpPatch("{id:int}/Unlock")]
     [Authorize(Policy = "USER:WRITE")]
-    public async Task<IActionResult> Unlock(int id)
+    public async Task<IActionResult> Unlock(int id, CancellationToken cancellationToken)
     {
-        await _userAdminService.UnlockUserAsync(id);
+        await _userAdminService.UnlockUserAsync(id, cancellationToken);
         return NoContent();
     }
 
     [HttpPost("{id:int}/Roles/{roleId:int}")]
     [Authorize(Policy = "USER:WRITE")]
-    public async Task<IActionResult> AssignRole(int id, int roleId)
+    public async Task<IActionResult> AssignRole(int id, int roleId, CancellationToken cancellationToken)
     {
-        await _rbacService.AssignRoleToUserAsync(id, roleId);
+        await _rbacService.AssignRoleToUserAsync(id, roleId, cancellationToken);
         return NoContent();
     }
 
     [HttpDelete("{id:int}/Roles/{roleId:int}")]
     [Authorize(Policy = "USER:WRITE")]
-    public async Task<IActionResult> RemoveRole(int id, int roleId)
+    public async Task<IActionResult> RemoveRole(int id, int roleId, CancellationToken cancellationToken)
     {
-        await _rbacService.RemoveRoleFromUserAsync(id, roleId);
+        await _rbacService.RemoveRoleFromUserAsync(id, roleId, cancellationToken);
         return NoContent();
     }
 }

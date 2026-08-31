@@ -27,17 +27,17 @@ public sealed class PermissionsController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "PERMISSION:READ")]
-    public async Task<ActionResult<IReadOnlyList<PermissionResponse>>> GetPermissions()
+    public async Task<ActionResult<IReadOnlyList<PermissionResponse>>> GetPermissions(CancellationToken cancellationToken)
     {
-        var permissions = await _rbacService.GetPermissionsAsync();
+        var permissions = await _rbacService.GetPermissionsAsync(cancellationToken);
         return Ok(permissions);
     }
 
     [HttpPost]
     [Authorize(Policy = "PERMISSION:WRITE")]
-    public async Task<ActionResult<PermissionResponse>> CreatePermission(PermissionRequest request)
+    public async Task<ActionResult<PermissionResponse>> CreatePermission(PermissionRequest request, CancellationToken cancellationToken)
     {
-        var permission = await _rbacService.CreatePermissionAsync(request);
+        var permission = await _rbacService.CreatePermissionAsync(request, cancellationToken);
 
         // Same reasoning as RolesController.CreateRole: no GET /api/v1/Permissions/{id} exists
         // on this branch's endpoint table, so Location is built directly rather than via
