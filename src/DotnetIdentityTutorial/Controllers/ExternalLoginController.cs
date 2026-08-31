@@ -1,8 +1,10 @@
 using DotnetIdentityTutorial.Dtos.Auth;
 using DotnetIdentityTutorial.Exceptions;
+using DotnetIdentityTutorial.RateLimiting;
 using DotnetIdentityTutorial.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace DotnetIdentityTutorial.Controllers;
 
@@ -10,7 +12,10 @@ namespace DotnetIdentityTutorial.Controllers;
 /// Sign in with Google, linked to an existing or newly created <c>ApplicationUser</c>. Every
 /// action delegates to <see cref="IExternalLoginService"/> - this controller never calls
 /// <c>SignInManager</c>/<c>UserManager</c> directly. Both actions are public: the OAuth round
-/// trip itself is what proves identity here, there is no bearer token to check yet.
+/// trip itself is what proves identity here, there is no bearer token to check yet - and both
+/// carry the same "auth" rate limit as every other unauthenticated endpoint that results in
+/// token issuance or an account mutation (<c>Register</c>/<c>Login</c>/<c>VerifyTwoFactor</c>),
+/// since <see cref="GoogleCallback"/> performs the exact same kind of DB writes those do.
 /// </summary>
 [ApiController]
 [Route("api/v1/[controller]")]
@@ -32,6 +37,7 @@ public sealed class ExternalLoginController : ControllerBase
     /// here would resolve to a 401 instead of the actual Google redirect.
     /// </summary>
     [HttpGet("Google")]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
     public IActionResult Google()
     {
         var redirectUrl = Url.Action(nameof(GoogleCallback), "ExternalLogin", null, Request.Scheme)
@@ -48,6 +54,7 @@ public sealed class ExternalLoginController : ControllerBase
     /// the exact same shape and pipeline a password login returns.
     /// </summary>
     [HttpGet("Google/Callback")]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
     public async Task<ActionResult<TokenResponse>> GoogleCallback(CancellationToken cancellationToken)
     {
         var info = await _externalLoginService.GetExternalLoginInfoAsync()
