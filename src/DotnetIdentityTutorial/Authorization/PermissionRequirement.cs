@@ -9,12 +9,12 @@ namespace DotnetIdentityTutorial.Authorization;
 /// keep in sync - any string an <c>[Authorize(Policy = "...")]</c> attribute names becomes a
 /// requirement for exactly that string.
 /// </summary>
-public sealed class PermissionRequirement : IAuthorizationRequirement
+public sealed record PermissionRequirement(string Permission) : IAuthorizationRequirement
 {
-    public PermissionRequirement(string permission)
-    {
-        Permission = permission;
-    }
-
-    public string Permission { get; }
+    /// <summary>
+    /// The claim type <see cref="Identity.ApplicationUserClaimsPrincipalFactory"/> writes and
+    /// <see cref="PermissionAuthorizationHandler"/> reads. Defined once here so the two can
+    /// never silently drift apart, unlike two independent string literals would.
+    /// </summary>
+    public const string ClaimType = "permission";
 }
