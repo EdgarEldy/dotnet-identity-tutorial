@@ -16,13 +16,6 @@ namespace DotnetIdentityTutorial.Services.Implementations;
 /// </summary>
 public sealed class ExternalLoginService : IExternalLoginService
 {
-    /// <summary>
-    /// Same default role every self-registered account gets via <c>AuthService.RegisterAsync</c> -
-    /// a brand-new account created through Google sign-in is otherwise indistinguishable from one
-    /// created through <c>POST /Auth/Register</c>, so it gets the same baseline permissions.
-    /// </summary>
-    private const string DefaultRoleName = "USER";
-
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ITokenService _tokenService;
@@ -54,6 +47,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         var existingLinkedUser = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
         if (existingLinkedUser is not null)
         {
+            await EnsureNotLockedOutAsync(existingLinkedUser);
             return await _tokenService.IssueTokensAsync(existingLinkedUser, cancellationToken);
         }
 
@@ -65,6 +59,8 @@ public sealed class ExternalLoginService : IExternalLoginService
         var user = await _userManager.FindByEmailAsync(email);
         if (user is not null)
         {
+            await EnsureNotLockedOutAsync(user);
+
             // An account with this email already exists - a user who registered with a password
             // first, now signing in with Google for the first time. Link the external login to
             // that existing account rather than trying to create a second one: UserManager.CreateAsync
@@ -75,6 +71,18 @@ public sealed class ExternalLoginService : IExternalLoginService
             // the README asks for.
             var addLoginResult = await _userManager.AddLoginAsync(user, info);
             addLoginResult.ThrowIfFailed("Linking external login");
+
+            if (!user.EmailConfirmed)
+            {
+                // Google already proved ownership of this exact email address before issuing the
+                // claim - the same proof this project's own ConfirmEmail link exists to establish -
+                // so an account that registered by password but never clicked that link is
+                // considered confirmed now rather than staying permanently unreachable by any
+                // sign-in path (password login would keep rejecting it via IsNotAllowed forever
+                // otherwise, since nothing else in this flow would ever complete that step).
+                user.EmailConfirmed = true;
+                (await _userManager.UpdateAsync(user)).ThrowIfFailed("Confirming the account via external login");
+            }
 
             return await _tokenService.IssueTokensAsync(user, cancellationToken);
         }
@@ -94,7 +102,7 @@ public sealed class ExternalLoginService : IExternalLoginService
         var createResult = await _userManager.CreateAsync(newUser);
         createResult.ThrowIfFailed("External account creation");
 
-        var roleResult = await _userManager.AddToRoleAsync(newUser, DefaultRoleName);
+        var roleResult = await _userManager.AddToRoleAsync(newUser, AuthService.DefaultRoleName);
         if (!roleResult.Succeeded)
         {
             // Mirrors AuthService.RegisterAsync's own rollback: without this, a transient
@@ -105,11 +113,32 @@ public sealed class ExternalLoginService : IExternalLoginService
             roleResult.ThrowIfFailed("Default role assignment");
         }
 
-        await _auditService.LogAsync("AssignRole", "User", newUser.Id.ToString(), new { Role = DefaultRoleName }, cancellationToken);
+        await _auditService.LogAsync("AssignRole", "User", newUser.Id.ToString(), new { Role = AuthService.DefaultRoleName }, cancellationToken);
 
         var linkResult = await _userManager.AddLoginAsync(newUser, info);
-        linkResult.ThrowIfFailed("Linking external login");
+        if (!linkResult.Succeeded)
+        {
+            // Same reasoning as the role-assignment rollback above: CreateAsync and AddToRoleAsync
+            // already succeeded by this point, so without a rollback here a failed link (a race
+            // between two callbacks for the same Google account, say) would leave a permanently
+            // orphaned account behind - no password, no linked login, unreachable by any sign-in
+            // path, and permanently squatting the email against every future attempt.
+            await _userManager.DeleteAsync(newUser);
+            linkResult.ThrowIfFailed("Linking external login");
+        }
 
         return await _tokenService.IssueTokensAsync(newUser, cancellationToken);
+    }
+
+    private async Task EnsureNotLockedOutAsync(ApplicationUser user)
+    {
+        // AuthService.LoginAsync gets this for free from CheckPasswordSignInAsync's own
+        // IsLockedOut result; this flow resolves an existing user by a different path (a linked
+        // login or a matched email) and has to check explicitly, or a locked-out account could
+        // still obtain real tokens simply by using Google instead of a password.
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            throw new BusinessRuleException("This account is locked out. Try again later.");
+        }
     }
 }
