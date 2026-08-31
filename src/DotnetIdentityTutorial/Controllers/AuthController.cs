@@ -23,10 +23,12 @@ namespace DotnetIdentityTutorial.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IMfaService _mfaService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IMfaService mfaService)
     {
         _authService = authService;
+        _mfaService = mfaService;
     }
 
     /// <summary>
@@ -55,12 +57,25 @@ public sealed class AuthController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Returns plain <see cref="IActionResult"/> rather than <see cref="ActionResult{TValue}"/>:
+    /// this single action has two genuinely different success shapes depending on whether the
+    /// account has 2FA enabled, a 200 <see cref="TokenResponse"/> or a 202
+    /// <see cref="TwoFactorRequiredResponse"/>, and a generic type argument can only describe one
+    /// of them for Swagger's benefit - the two <see cref="ProducesResponseTypeAttribute"/>s below
+    /// cover both explicitly instead. This reuses the same "202 = not fully done yet" semantics
+    /// <see cref="Register"/> already uses above, applied to a second outcome of this action
+    /// rather than a second endpoint: a 2FA-required login isn't a completed sign-in any more
+    /// than an unconfirmed registration is a usable account yet.
+    /// </summary>
     [HttpPost("Login")]
     [EnableRateLimiting(RateLimiterPolicies.Auth)]
-    public async Task<ActionResult<TokenResponse>> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TwoFactorRequiredResponse), StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
-        var tokens = await _authService.LoginAsync(request, cancellationToken);
-        return Ok(tokens);
+        var result = await _authService.LoginAsync(request, cancellationToken);
+        return result.RequiresTwoFactor ? Accepted(new TwoFactorRequiredResponse(result.TwoFactorToken!)) : Ok(result.Tokens);
     }
 
     [HttpPost("Refresh")]
@@ -126,6 +141,45 @@ public sealed class AuthController : ControllerBase
             .ToList();
 
         return Ok(profile with { Permissions = permissions });
+    }
+
+    [HttpPost("Enable2fa")]
+    [Authorize]
+    public async Task<ActionResult<Enable2faResponse>> Enable2fa(CancellationToken cancellationToken)
+    {
+        var response = await _mfaService.Enable2faAsync(GetCurrentUserId(), cancellationToken);
+        return Ok(response);
+    }
+
+    [HttpPost("Confirm2fa")]
+    [Authorize]
+    public async Task<ActionResult<Confirm2faResponse>> Confirm2fa([FromBody] Confirm2faRequest request, CancellationToken cancellationToken)
+    {
+        var response = await _mfaService.Confirm2faAsync(GetCurrentUserId(), request, cancellationToken);
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// Public, not <see cref="Authorize"/>: the caller isn't authenticated yet at this point in
+    /// the flow, only in possession of the short-lived two-factor challenge token
+    /// <see cref="Login"/> handed back. Rate-limited by the same "auth" policy as
+    /// <see cref="Login"/> itself - a 6-digit TOTP code has limited entropy, so this endpoint is
+    /// exactly as brute-forceable as a password and gets the same protection.
+    /// </summary>
+    [HttpPost("VerifyTwoFactor")]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
+    public async Task<ActionResult<TokenResponse>> VerifyTwoFactor([FromBody] VerifyTwoFactorRequest request, CancellationToken cancellationToken)
+    {
+        var tokens = await _authService.VerifyTwoFactorAsync(request, cancellationToken);
+        return Ok(tokens);
+    }
+
+    [HttpPost("Disable2fa")]
+    [Authorize]
+    public async Task<IActionResult> Disable2fa(CancellationToken cancellationToken)
+    {
+        await _mfaService.Disable2faAsync(GetCurrentUserId(), cancellationToken);
+        return NoContent();
     }
 
     private int GetCurrentUserId()
