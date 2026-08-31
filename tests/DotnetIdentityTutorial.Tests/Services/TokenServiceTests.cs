@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Testcontainers.PostgreSql;
 using RefreshTokenEntity = DotnetIdentityTutorial.Models.RefreshToken;
@@ -190,6 +191,110 @@ public class TokenServiceTests : IClassFixture<TokenServiceFixture>
         // still-active descendant (second) is revoked too, not just silently ignored.
         var secondEntity = await GetByRawTokenAsync(dbContext, second.RefreshToken);
         Assert.NotNull(secondEntity.RevokedAt);
+    }
+
+    /// <summary>
+    /// Deliberately does NOT use <c>_fixture.TimeProvider</c> (the shared clock every test above
+    /// uses) to sign the token under test here. <c>ValidateTwoFactorChallengeTokenAsync</c> hands
+    /// the token to <c>JwtSecurityTokenHandler.ValidateToken</c> with no custom lifetime seam, so
+    /// its <c>nbf</c>/<c>exp</c> claims are checked against the real system clock - the exact same
+    /// "not reachable through this seam at all" limitation <c>AuthWebApplicationFactory</c>'s own
+    /// remarks document for JWT Bearer's lifetime validation in <c>Program.cs</c>. The shared
+    /// fixture's clock is anchored to a fixed, arbitrary past date (2026-01-01) for the sake of
+    /// the refresh-token tests above, which only ever compare against database columns written and
+    /// read through that same injected clock - never through a third-party library's own
+    /// real-clock check. Signing a token with that same far-in-the-past clock and then handing it
+    /// to real-clock JWT validation would make it look already expired regardless of the scenario
+    /// under test, which is exactly what happened the first time this test was written against the
+    /// shared fixture directly. A fresh <see cref="FakeTimeProvider"/> seeded from real
+    /// <see cref="DateTimeOffset.UtcNow"/> keeps the token's own claims aligned with the clock
+    /// <c>ValidateToken</c> actually checks against, matching how <c>TokenService</c> is seeded
+    /// with <c>TimeProvider.System</c> in production.
+    /// </summary>
+    [Fact]
+    public async Task IssueTwoFactorChallengeTokenAsync_ThenValidate_ReturnsTheSameUserId()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+        var tokenService = CreateTokenServiceWithClock(scope, new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var challengeToken = await tokenService.IssueTwoFactorChallengeTokenAsync(user);
+        var userId = await tokenService.ValidateTwoFactorChallengeTokenAsync(challengeToken);
+
+        Assert.Equal(user.Id, userId);
+    }
+
+    /// <summary>
+    /// Proves expiry without a real 5-minute wait and without relying on
+    /// <see cref="FakeTimeProvider.Advance"/> after issuance - advancing a fake clock has no
+    /// effect on the real system clock <c>ValidateToken</c> actually checks against (see this
+    /// class's own remarks on <see cref="IssueTwoFactorChallengeTokenAsync_ThenValidate_ReturnsTheSameUserId"/>
+    /// for why). Instead this signs the token with a clock already 11 minutes in the past relative
+    /// to real time - so the token's own <c>exp</c> claim (baseline + the 5-minute
+    /// <c>TwoFactorChallengeMinutes</c> lifetime) is already 6 minutes behind real "now" the
+    /// moment it's minted, deterministically, the same "move the persisted expiry into the past
+    /// directly" technique <c>AuthAccountLockoutE2ETests</c> uses for Identity's own un-seamed
+    /// lockout clock. 11 minutes, not 6: <c>TokenValidationParameters</c>'s own default
+    /// <c>ClockSkew</c> is 5 minutes, so an <c>exp</c> only 1 minute behind "now" (the first
+    /// version of this test) still validates as not-yet-expired - the back-dating has to clear
+    /// that tolerance too, not just the token's own 5-minute lifetime.
+    /// </summary>
+    [Fact]
+    public async Task ValidateTwoFactorChallengeTokenAsync_AfterItsFiveMinuteWindowHasPassed_ThrowsBusinessRuleException()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+        var tokenService = CreateTokenServiceWithClock(scope, new FakeTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-11)));
+
+        var challengeToken = await tokenService.IssueTwoFactorChallengeTokenAsync(user);
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => tokenService.ValidateTwoFactorChallengeTokenAsync(challengeToken));
+    }
+
+    /// <summary>
+    /// Proves the audience-based isolation described in <c>ITokenService.IssueTwoFactorChallengeTokenAsync</c>'s
+    /// own remarks actually holds, not just conceptually: a real access token (signed with the
+    /// same key, but the configured <c>Jwt:Audience</c> rather than
+    /// <c>TokenService.TwoFactorChallengeAudience</c>) must be rejected by
+    /// <see cref="ITokenService.ValidateTwoFactorChallengeTokenAsync"/> the same way an ordinary
+    /// bearer token is rejected by <c>ValidateTwoFactorChallengeTokenAsync</c>'s own audience
+    /// check - proving a leaked/replayed access token can never be used to complete a 2FA
+    /// challenge it was never issued for. Uses the same real-time-anchored clock as the round-trip
+    /// test above, for the same reason - this must fail on its audience check specifically, not
+    /// incidentally look expired because of the shared fixture's unrelated past baseline.
+    /// </summary>
+    [Fact]
+    public async Task ValidateTwoFactorChallengeTokenAsync_GivenAnOrdinaryAccessToken_ThrowsBusinessRuleException()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+        var tokenService = CreateTokenServiceWithClock(scope, new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var issued = await tokenService.IssueTokensAsync(user);
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => tokenService.ValidateTwoFactorChallengeTokenAsync(issued.AccessToken));
+    }
+
+    /// <summary>
+    /// Builds a <see cref="TokenService"/> directly (not resolved from <paramref name="scope"/>'s
+    /// own DI container) so a test can supply its own <see cref="TimeProvider"/> instead of the
+    /// fixture-wide <see cref="TokenServiceFixture.TimeProvider"/> singleton every other test in
+    /// this class shares - see the two-factor challenge token tests above for why that distinction
+    /// matters here specifically. Every other dependency still comes from the fixture's real
+    /// Testcontainers-backed DI container, only the clock is swapped.
+    /// </summary>
+    private static ITokenService CreateTokenServiceWithClock(IServiceScope scope, TimeProvider timeProvider)
+    {
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var claimsPrincipalFactory = scope.ServiceProvider.GetRequiredService<IUserClaimsPrincipalFactory<ApplicationUser>>();
+        var jwtOptions = scope.ServiceProvider.GetRequiredService<IOptions<JwtSettings>>();
+        var identityOptions = scope.ServiceProvider.GetRequiredService<IOptions<IdentityOptions>>();
+
+        return new TokenService(dbContext, userManager, claimsPrincipalFactory, timeProvider, jwtOptions, identityOptions);
     }
 
     private static async Task<RefreshTokenEntity> GetByRawTokenAsync(AppDbContext dbContext, string rawToken)
