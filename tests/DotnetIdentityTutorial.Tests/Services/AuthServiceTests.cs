@@ -65,9 +65,11 @@ public sealed class AuthServiceTests : IClassFixture<AuthServiceFixture>
         var confirmationToken = await userManager.GenerateEmailConfirmationTokenAsync(user);
         await authService.ConfirmEmailAsync(user.Id, confirmationToken);
 
-        var tokens = await authService.LoginAsync(new LoginRequest(email, "Passw0rd1"));
-        Assert.False(string.IsNullOrWhiteSpace(tokens.AccessToken));
-        Assert.False(string.IsNullOrWhiteSpace(tokens.RefreshToken));
+        var loginResult = await authService.LoginAsync(new LoginRequest(email, "Passw0rd1"));
+        Assert.False(loginResult.RequiresTwoFactor);
+        Assert.NotNull(loginResult.Tokens);
+        Assert.False(string.IsNullOrWhiteSpace(loginResult.Tokens!.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(loginResult.Tokens!.RefreshToken));
     }
 
     [Fact]
