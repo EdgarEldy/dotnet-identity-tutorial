@@ -82,4 +82,30 @@ public sealed class AuthLifecycleE2ETests : IClassFixture<AuthWebApplicationFact
         var meAfterLogoutResponse = await client.GetAsync("/api/v1/Auth/Me");
         Assert.Equal(HttpStatusCode.Unauthorized, meAfterLogoutResponse.StatusCode);
     }
+
+    /// <summary>
+    /// Registering an email that already has an account must return the exact same 202 Accepted
+    /// a fresh registration gets, never a distinguishable error - otherwise Register becomes a
+    /// user-enumeration oracle, the same class of leak <c>ForgotPasswordAsync</c> is designed to
+    /// prevent. Uses its own factory instance (not the shared one the lifecycle test above uses)
+    /// so this test's two Register calls don't count against that test's rate-limit budget.
+    /// </summary>
+    [Fact]
+    public async Task Register_WithAnAlreadyRegisteredEmail_StillReturnsAccepted()
+    {
+        await using var factory = new AuthWebApplicationFactory();
+        await factory.InitializeAsync();
+        var client = factory.CreateClient();
+        var email = $"{Guid.NewGuid():N}@example.com";
+        const string password = "Passw0rd1";
+
+        await AuthTestHelpers.RegisterAsync(client, factory.EmailService, email, password);
+
+        var duplicateResponse = await client.PostAsJsonAsync(
+            "/api/v1/Auth/Register",
+            new { Email = email, Password = password, FirstName = "Ada", LastName = "Lovelace" },
+            AuthTestHelpers.JsonOptions);
+
+        Assert.Equal(HttpStatusCode.Accepted, duplicateResponse.StatusCode);
+    }
 }
