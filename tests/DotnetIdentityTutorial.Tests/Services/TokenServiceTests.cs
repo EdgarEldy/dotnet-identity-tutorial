@@ -3,6 +3,7 @@ using System.Text;
 using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.Exceptions;
 using DotnetIdentityTutorial.Identity;
+using DotnetIdentityTutorial.Services;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -137,7 +138,7 @@ public class TokenServiceTests : IClassFixture<TokenServiceFixture>
         var issued = await tokenService.IssueTokensAsync(user);
         var jti = Guid.NewGuid().ToString();
 
-        await tokenService.RevokeAsync(jti, user.Id);
+        await tokenService.RevokeAsync(jti, user.Id, issued.AccessTokenExpiresAt);
 
         var isBlacklisted = await dbContext.BlacklistedAccessTokens.AnyAsync(b => b.Jti == jti);
         Assert.True(isBlacklisted);
@@ -146,14 +147,63 @@ public class TokenServiceTests : IClassFixture<TokenServiceFixture>
         Assert.NotNull(refreshEntity.RevokedAt);
 
         // Idempotent: calling it again for the same jti must not throw.
-        var exception = await Record.ExceptionAsync(() => tokenService.RevokeAsync(jti, user.Id));
+        var exception = await Record.ExceptionAsync(() => tokenService.RevokeAsync(jti, user.Id, issued.AccessTokenExpiresAt));
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task IsAccessTokenBlacklistedAsync_ReflectsRevocation()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+        var issued = await tokenService.IssueTokensAsync(user);
+        var jti = Guid.NewGuid().ToString();
+
+        Assert.False(await tokenService.IsAccessTokenBlacklistedAsync(jti));
+
+        await tokenService.RevokeAsync(jti, user.Id, issued.AccessTokenExpiresAt);
+
+        Assert.True(await tokenService.IsAccessTokenBlacklistedAsync(jti));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_ReusedAndExpiredToken_StillRevokesFamily()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await CreateUserAsync(userManager);
+
+        var first = await tokenService.IssueTokensAsync(user);
+        var second = await tokenService.RefreshAsync(first.RefreshToken);
+
+        // Advance well past the refresh token's own lifetime so the reused first token is now
+        // both revoked (rotated away by the refresh above) and expired.
+        _fixture.TimeProvider.Advance(TimeSpan.FromDays(30));
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => tokenService.RefreshAsync(first.RefreshToken));
+
+        // Reuse detection must still have fired despite the token also being expired: the
+        // still-active descendant (second) is revoked too, not just silently ignored.
+        var secondEntity = await GetByRawTokenAsync(dbContext, second.RefreshToken);
+        Assert.NotNull(secondEntity.RevokedAt);
     }
 
     private static async Task<RefreshTokenEntity> GetByRawTokenAsync(AppDbContext dbContext, string rawToken)
     {
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
-        return await dbContext.RefreshTokens.SingleAsync(rt => rt.TokenHash == hash);
+
+        // AsNoTracking, and always re-queried: TokenService revokes rows via ExecuteUpdateAsync,
+        // which bypasses the change tracker entirely. Without this, a call here that follows an
+        // earlier tracked read of the same row (same AppDbContext instance, shared with
+        // TokenService within one DI scope) would return the stale, already-tracked in-memory
+        // value instead of what ExecuteUpdateAsync actually wrote to the database.
+        return await dbContext.RefreshTokens
+            .AsNoTracking()
+            .SingleAsync(rt => rt.TokenHash == hash);
     }
 
     private static async Task<ApplicationUser> CreateUserAsync(UserManager<ApplicationUser> userManager)
@@ -218,6 +268,7 @@ public sealed class TokenServiceFixture : IAsyncLifetime
             })
             .Build();
         services.AddSingleton<IConfiguration>(configuration);
+        services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(_postgresContainer.GetConnectionString()));
