@@ -1,5 +1,6 @@
 using DotnetIdentityTutorial.Dtos.Auth;
 using DotnetIdentityTutorial.Exceptions;
+using DotnetIdentityTutorial.Extensions;
 using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -34,19 +35,36 @@ public sealed class MfaService : IMfaService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new ResourceNotFoundException($"User {userId} was not found.");
 
+        if (user.TwoFactorEnabled)
+        {
+            // Without this check, anyone holding a valid bearer token for an account that
+            // already has 2FA active (a stolen/leaked access token, say) could call this
+            // endpoint to retrieve the account's real, currently-live authenticator secret -
+            // GetAuthenticatorKeyAsync below returns the same key already backing the user's
+            // real authenticator app, not a fresh one, since a key is only regenerated when
+            // none exists yet. Disable2faAsync must run first, which resets the key.
+            throw new BusinessRuleException(
+                "Two-factor authentication is already enabled for this account. Disable it before setting up a new authenticator.");
+        }
+
         var sharedKey = await _userManager.GetAuthenticatorKeyAsync(user);
         if (string.IsNullOrEmpty(sharedKey))
         {
             // Only reset when there is no key yet - the standard idempotent Identity 2FA setup
             // pattern. Resetting unconditionally here would invalidate a QR code the user may
             // have already scanned every time they reload the setup page before confirming it.
-            await _userManager.ResetAuthenticatorKeyAsync(user);
+            (await _userManager.ResetAuthenticatorKeyAsync(user)).ThrowIfFailed("Authenticator key generation");
             sharedKey = await _userManager.GetAuthenticatorKeyAsync(user);
         }
 
-        var authenticatorUri = BuildAuthenticatorUri(user.Email ?? user.UserName ?? userId.ToString(), sharedKey!);
+        if (string.IsNullOrEmpty(sharedKey))
+        {
+            throw new BusinessRuleException("Authenticator key generation failed to produce a usable key.");
+        }
 
-        return new Enable2faResponse(sharedKey!, authenticatorUri);
+        var authenticatorUri = BuildAuthenticatorUri(user.Email ?? user.UserName ?? userId.ToString(), sharedKey);
+
+        return new Enable2faResponse(sharedKey, authenticatorUri);
     }
 
     public async Task<Confirm2faResponse> Confirm2faAsync(int userId, Confirm2faRequest request, CancellationToken cancellationToken = default)
@@ -60,7 +78,7 @@ public sealed class MfaService : IMfaService
             throw new BusinessRuleException("Invalid authenticator code.");
         }
 
-        await _userManager.SetTwoFactorEnabledAsync(user, true);
+        (await _userManager.SetTwoFactorEnabledAsync(user, true)).ThrowIfFailed("Enabling two-factor authentication");
 
         var recoveryCodes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, RecoveryCodeCount);
 
@@ -72,12 +90,17 @@ public sealed class MfaService : IMfaService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new ResourceNotFoundException($"User {userId} was not found.");
 
-        await _userManager.SetTwoFactorEnabledAsync(user, false);
+        (await _userManager.SetTwoFactorEnabledAsync(user, false)).ThrowIfFailed("Disabling two-factor authentication");
 
         // Also resets the authenticator key, not just the enabled flag - so a future re-enable
         // always starts from a brand-new secret instead of silently reusing one that may have
         // been the reason 2FA was turned off in the first place (e.g. a compromised device).
-        await _userManager.ResetAuthenticatorKeyAsync(user);
+        (await _userManager.ResetAuthenticatorKeyAsync(user)).ThrowIfFailed("Resetting the authenticator key");
+
+        // The previously issued recovery codes are otherwise still valid credentials even after
+        // 2FA is switched off - regenerating with a count of zero clears the stored set instead
+        // of leaving a leaked or written-down code usable indefinitely.
+        await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
     }
 
     private static string BuildAuthenticatorUri(string label, string sharedKey)
