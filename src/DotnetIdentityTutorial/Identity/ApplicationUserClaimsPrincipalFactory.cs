@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using DotnetIdentityTutorial.Authorization;
 using DotnetIdentityTutorial.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,10 +17,8 @@ namespace DotnetIdentityTutorial.Identity;
 /// Program.cs, so every call to <c>SignInManager</c>/<c>UserManager</c> that builds a
 /// <see cref="ClaimsPrincipal"/> for a user goes through this instead of the base class.
 /// </summary>
-public class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalFactory<ApplicationUser, ApplicationRole>
+public sealed class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalFactory<ApplicationUser, ApplicationRole>
 {
-    private const string PermissionClaimType = "permission";
-
     private readonly AppDbContext _dbContext;
 
     public ApplicationUserClaimsPrincipalFactory(
@@ -36,21 +35,18 @@ public class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalFactory<
     {
         var identity = await base.GenerateClaimsAsync(user);
 
-        // A single join from AspNetUserRoles through RolePermissions to Permissions for this
-        // user's current role ids, rather than looping over each role name and querying per
-        // role - one round trip regardless of how many roles the user has.
-        var permissions = await (
-            from userRole in _dbContext.UserRoles
-            join rolePermission in _dbContext.RolePermissions on userRole.RoleId equals rolePermission.RoleId
-            join permission in _dbContext.Permissions on rolePermission.PermissionId equals permission.Id
-            where userRole.UserId == user.Id
-            select permission.Resource + ":" + permission.Action)
+        // Rides the RolePermission.Permission navigation property (already configured in
+        // RolePermissionConfiguration) rather than re-deriving the join from raw DbSets, one
+        // round trip regardless of how many roles the user has.
+        var permissions = await _dbContext.RolePermissions
+            .Where(rp => _dbContext.UserRoles.Any(ur => ur.UserId == user.Id && ur.RoleId == rp.RoleId))
+            .Select(rp => rp.Permission.Resource + ":" + rp.Permission.Action)
             .Distinct()
             .ToListAsync();
 
         foreach (var permission in permissions)
         {
-            identity.AddClaim(new Claim(PermissionClaimType, permission));
+            identity.AddClaim(new Claim(PermissionRequirement.ClaimType, permission));
         }
 
         return identity;
