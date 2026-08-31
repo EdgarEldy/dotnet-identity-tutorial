@@ -328,7 +328,7 @@ DotnetIdentityTutorial/
 - [x] `IAuditService`/`AuditService`: a single `LogAsync(action, entityType, entityId, details)` method
 - [x] Wired into every mutating operation in `RbacService` and `UserAdminService` (role/permission assignment and removal, user lock/unlock) - each call records who did what, to what, and when
 - [x] `GET /api/v1/AuditLogs` - paginated, filterable by actor/entity type, `[Authorize(Policy = "AUDIT:READ")]`
-- [ ] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
+- [x] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
 
 ## feature/external-logins (bonus)
 
