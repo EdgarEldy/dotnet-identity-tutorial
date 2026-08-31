@@ -138,6 +138,46 @@ public class UserAdminServiceTests : IClassFixture<UserAdminServiceFixture>
 
         Assert.Single(page);
     }
+
+    [Theory]
+    [InlineData(0, 20)]
+    [InlineData(-1, 20)]
+    [InlineData(1, 0)]
+    [InlineData(1, -5)]
+    [InlineData(1, 101)]
+    public async Task GetUsersAsync_InvalidPageOrPageSize_ThrowsBusinessRuleException(int page, int pageSize)
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userAdminService = scope.ServiceProvider.GetRequiredService<IUserAdminService>();
+
+        await Assert.ThrowsAsync<BusinessRuleException>(() => userAdminService.GetUsersAsync(page, pageSize));
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_MultipleUsersWithRoles_ReturnsCorrectRolesPerUser()
+    {
+        using var scope = _fixture.ServiceProvider.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+        var userAdminService = scope.ServiceProvider.GetRequiredService<IUserAdminService>();
+
+        if (!await roleManager.RoleExistsAsync("ADMIN"))
+        {
+            await roleManager.CreateAsync(new ApplicationRole { Name = "ADMIN" });
+        }
+
+        var adminUser = await CreateUserAsync(userManager);
+        await userManager.AddToRoleAsync(adminUser, "ADMIN");
+        var plainUser = await CreateUserAsync(userManager);
+
+        var (page, _) = await userAdminService.GetUsersAsync(page: 1, pageSize: 100);
+
+        var adminResponse = Assert.Single(page, u => u.Id == adminUser.Id);
+        Assert.Contains("ADMIN", adminResponse.Roles);
+
+        var plainResponse = Assert.Single(page, u => u.Id == plainUser.Id);
+        Assert.Empty(plainResponse.Roles);
+    }
 }
 
 /// <summary>
