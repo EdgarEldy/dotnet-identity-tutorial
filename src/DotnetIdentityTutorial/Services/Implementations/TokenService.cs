@@ -265,7 +265,17 @@ public sealed class TokenService : ITokenService
         ClaimsPrincipal principal;
         try
         {
-            principal = new JwtSecurityTokenHandler().ValidateToken(token, validationParameters, out _);
+            // MapInboundClaims = false: JwtSecurityTokenHandler's own default (true, kept for
+            // backward compatibility) silently rewrites short claim types like "sub" into long
+            // legacy URIs (ClaimTypes.NameIdentifier) on the ClaimsPrincipal it hands back -
+            // exactly the "sub" claim IssueTwoFactorChallengeTokenAsync put in the token in the
+            // first place. Left at its default, the read below would never find it under
+            // JwtRegisteredClaimNames.Sub. ASP.NET Core's own JwtBearerHandler (see Program.cs)
+            // doesn't hit this - it validates through the newer JsonWebTokenHandler, which
+            // defaults to no remapping - but this method builds its own JwtSecurityTokenHandler
+            // directly, so the same behavior has to be requested explicitly here.
+            var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+            principal = handler.ValidateToken(token, validationParameters, out _);
         }
         catch (Exception)
         {
