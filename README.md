@@ -259,9 +259,9 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `ApplicationUserClaimsPrincipalFactory`, registered in place of the default factory
-- [ ] `PermissionRequirement`, `PermissionAuthorizationHandler` (pure claims check), `PermissionPolicyProvider`
-- [ ] Tests: claims factory output for multi-role users (no duplicate permission claims), handler success/failure, policy provider building a policy for an arbitrary permission string
+- [x] `ApplicationUserClaimsPrincipalFactory`, registered in place of the default factory
+- [x] `PermissionRequirement`, `PermissionAuthorizationHandler` (pure claims check), `PermissionPolicyProvider`
+- [x] Tests: claims factory output for multi-role users (no duplicate permission claims), handler success/failure, policy provider building a policy for an arbitrary permission string
 
 ## feature/token-lifecycle
 
