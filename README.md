@@ -324,11 +324,11 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `AuditLog` entity (`actor_user_id`, `action`, `entity_type`, `entity_id`, `details` as a JSON column, `created_at` via `TimeProvider`)
-- [ ] `IAuditService`/`AuditService`: a single `LogAsync(action, entityType, entityId, details)` method
-- [ ] Wired into every mutating operation in `RbacService` and `UserAdminService` (role/permission assignment and removal, user lock/unlock) - each call records who did what, to what, and when
-- [ ] `GET /api/v1/AuditLogs` - paginated, filterable by actor/entity type, `[Authorize(Policy = "AUDIT:READ")]`
-- [ ] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
+- [x] `AuditLog` entity (`actor_user_id`, `action`, `entity_type`, `entity_id`, `details` as a JSON column, `created_at` via `TimeProvider`)
+- [x] `IAuditService`/`AuditService`: a single `LogAsync(action, entityType, entityId, details)` method
+- [x] Wired into every mutating operation in `RbacService` and `UserAdminService` (role/permission assignment and removal, user lock/unlock) - each call records who did what, to what, and when
+- [x] `GET /api/v1/AuditLogs` - paginated, filterable by actor/entity type, `[Authorize(Policy = "AUDIT:READ")]`
+- [x] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
 
 ## feature/external-logins (bonus)
 

@@ -83,7 +83,7 @@ public sealed class AuthService : IAuthService
             roleResult.ThrowIfFailed("Default role assignment");
         }
 
-        await _auditService.LogAsync("AssignRole", "User", user.Id.ToString(), new { Role = DefaultRoleName });
+        await _auditService.LogAsync("AssignRole", "User", user.Id.ToString(), new { Role = DefaultRoleName }, cancellationToken);
 
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
         var confirmationLink = BuildApiLink("Auth/ConfirmEmail", ("userId", user.Id.ToString()), ("token", token));

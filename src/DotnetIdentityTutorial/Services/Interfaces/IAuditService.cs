@@ -1,18 +1,30 @@
+using DotnetIdentityTutorial.Dtos.AuditLog;
+
 namespace DotnetIdentityTutorial.Services.Interfaces;
 
 /// <summary>
-/// Records an entry in the audit trail for an RBAC or account-security change (role/permission
-/// mutations, role/permission assignments, user lock/unlock, and later - once
-/// feature/audit-logging lands - password/credential events too).
+/// Records and reads back the audit trail for RBAC and account-security changes (role/permission
+/// mutations, role/permission assignments, user lock/unlock, and later password/credential
+/// events too).
 ///
-/// This branch (feature/rbac) only stubs the implementation: the real <c>audit_logs</c> table
-/// and <c>AuditLog</c> entity don't exist yet, they're feature/audit-logging's job. Every RBAC
-/// mutation call site still calls this interface now, exactly as it will once the real
-/// implementation lands, so no call site needs to be revisited later - only
-/// <see cref="DotnetIdentityTutorial.Services.Implementations.AuditService"/>'s internals
-/// change.
+/// <see cref="LogAsync"/>'s own signature carries no caller-supplied actor - every RBAC mutation
+/// call site (<c>RbacService</c>, <c>UserAdminService</c>) calls it exactly the same way whether
+/// or not a request is in flight, so <c>AuditService</c> resolves "who did this" itself from the
+/// ambient <c>HttpContext</c> rather than requiring every call site to pass it through.
 /// </summary>
 public interface IAuditService
 {
-    Task LogAsync(string action, string entityType, string entityId, object? details);
+    Task LogAsync(string action, string entityType, string entityId, object? details, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A paginated, newest-first read of the audit trail, optionally filtered by the actor who
+    /// performed the action and/or the type of entity it was performed on. Backs
+    /// <c>GET /api/v1/AuditLogs</c>.
+    /// </summary>
+    Task<(IReadOnlyList<AuditLogResponse> Logs, int TotalCount)> GetAuditLogsAsync(
+        int page,
+        int pageSize,
+        int? actorUserId,
+        string? entityType,
+        CancellationToken cancellationToken = default);
 }
