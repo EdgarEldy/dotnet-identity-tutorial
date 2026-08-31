@@ -74,7 +74,8 @@ public sealed class RbacService : IRbacService
             "Create",
             nameof(Permission),
             permission.Id.ToString(),
-            new { permission.Resource, permission.Action });
+            new { permission.Resource, permission.Action },
+            cancellationToken);
 
         return new PermissionResponse(permission.Id, permission.Resource, permission.Action);
     }
@@ -114,7 +115,7 @@ public sealed class RbacService : IRbacService
             throw new BusinessRuleException($"Failed to create role '{request.Name}': {errors}");
         }
 
-        await _auditService.LogAsync("Create", nameof(ApplicationRole), role.Id.ToString(), new { role.Name });
+        await _auditService.LogAsync("Create", nameof(ApplicationRole), role.Id.ToString(), new { role.Name }, cancellationToken);
 
         return new RoleResponse(role.Id, role.Name!, []);
     }
@@ -136,7 +137,8 @@ public sealed class RbacService : IRbacService
             "AssignPermission",
             nameof(ApplicationRole),
             roleId.ToString(),
-            new { PermissionId = permissionId });
+            new { PermissionId = permissionId },
+            cancellationToken);
     }
 
     public async Task RemovePermissionFromRoleAsync(int roleId, int permissionId, CancellationToken cancellationToken = default)
@@ -156,7 +158,8 @@ public sealed class RbacService : IRbacService
             "RemovePermission",
             nameof(ApplicationRole),
             roleId.ToString(),
-            new { PermissionId = permissionId });
+            new { PermissionId = permissionId },
+            cancellationToken);
     }
 
     public async Task AssignRoleToUserAsync(int userId, int roleId, CancellationToken cancellationToken = default)
@@ -175,7 +178,7 @@ public sealed class RbacService : IRbacService
             }
         }
 
-        await _auditService.LogAsync("AssignRole", "User", userId.ToString(), new { RoleId = roleId });
+        await _auditService.LogAsync("AssignRole", "User", userId.ToString(), new { RoleId = roleId }, cancellationToken);
     }
 
     public async Task RemoveRoleFromUserAsync(int userId, int roleId, CancellationToken cancellationToken = default)
@@ -194,7 +197,7 @@ public sealed class RbacService : IRbacService
             }
         }
 
-        await _auditService.LogAsync("RemoveRole", "User", userId.ToString(), new { RoleId = roleId });
+        await _auditService.LogAsync("RemoveRole", "User", userId.ToString(), new { RoleId = roleId }, cancellationToken);
     }
 
     private async Task<ApplicationRole> EnsureRoleExistsAsync(int roleId, CancellationToken cancellationToken)
