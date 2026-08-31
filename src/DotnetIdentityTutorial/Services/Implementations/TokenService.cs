@@ -35,6 +35,18 @@ namespace DotnetIdentityTutorial.Services.Implementations;
 /// The revoked-token check runs before the expiry check specifically so a stolen token replayed
 /// after its own natural expiry still triggers family revocation as defense in depth.
 ///
+/// <see cref="IssueTwoFactorChallengeTokenAsync"/>/<see cref="ValidateTwoFactorChallengeTokenAsync"/>
+/// add a third, narrower kind of token: a "two-factor challenge token" (the README's own "partial
+/// login ticket"), issued by <c>AuthService.LoginAsync</c> instead of a real access/refresh pair
+/// when the account has 2FA enabled. It is a JWT signed with the same key as a real access token
+/// but a different <c>aud</c> claim (<see cref="TwoFactorChallengeAudience"/> instead of
+/// <see cref="JwtSettings.Audience"/>) - that mismatch alone is what makes it fail the JWT Bearer
+/// scheme's own audience validation in <c>Program.cs</c> if ever presented as a Bearer token,
+/// with zero changes needed to that pipeline. It is validated purely by signature/issuer/audience/
+/// lifetime, the same as a normal access token's signature check, and is never persisted (no
+/// database row, nothing to blacklist) since it grants no access to a protected resource by
+/// itself.
+///
 /// Neither the raw access token nor the raw refresh token is ever logged or put in an exception
 /// message here - only their hashes (<see cref="RefreshToken.TokenHash"/>) or unique ids
 /// (the access token's <c>jti</c>) ever reach the database or a log line. The raw
@@ -45,6 +57,22 @@ namespace DotnetIdentityTutorial.Services.Implementations;
 /// </summary>
 public sealed class TokenService : ITokenService
 {
+    /// <summary>
+    /// Deliberately much shorter than the 15-minute access token: a two-factor challenge token
+    /// only needs to survive the brief gap between Login returning "2FA required" and the caller
+    /// submitting a code to VerifyTwoFactor, not an entire session. A narrow window also limits
+    /// how long a leaked challenge token (still just a password-verified-but-not-yet-2FA-verified
+    /// ticket, not a bearer token, but still worth minimizing) remains usable.
+    /// </summary>
+    private const int TwoFactorChallengeMinutes = 5;
+
+    /// <summary>
+    /// The audience a two-factor challenge token is signed with - deliberately different from
+    /// <see cref="JwtSettings.Audience"/>, the actual security boundary described in this class's
+    /// own <see cref="IssueTwoFactorChallengeTokenAsync"/> remarks.
+    /// </summary>
+    private const string TwoFactorChallengeAudience = "DotnetIdentityTutorial.TwoFactorChallenge";
+
     private readonly AppDbContext _dbContext;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserClaimsPrincipalFactory<ApplicationUser> _claimsPrincipalFactory;
@@ -194,6 +222,66 @@ public sealed class TokenService : ITokenService
     public Task<bool> IsAccessTokenBlacklistedAsync(string jti, CancellationToken cancellationToken = default)
     {
         return _dbContext.BlacklistedAccessTokens.AnyAsync(b => b.Jti == jti, cancellationToken);
+    }
+
+    public Task<string> IssueTwoFactorChallengeTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default)
+    {
+        var now = _timeProvider.GetUtcNow();
+
+        // Only a subject and a fresh jti - unlike a real access token, this carries none of the
+        // caller's role/permission claims. It grants nothing on its own beyond the right to
+        // attempt VerifyTwoFactor within its own short expiry, so there is nothing else worth
+        // putting in it, and less to leak if it ever ends up somewhere it shouldn't.
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+        };
+
+        var jwt = new JwtSecurityToken(
+            issuer: _jwtSettings.Issuer,
+            audience: TwoFactorChallengeAudience,
+            claims: claims,
+            notBefore: now.UtcDateTime,
+            expires: now.AddMinutes(TwoFactorChallengeMinutes).UtcDateTime,
+            signingCredentials: _signingCredentials);
+
+        return Task.FromResult(new JwtSecurityTokenHandler().WriteToken(jwt));
+    }
+
+    public Task<int> ValidateTwoFactorChallengeTokenAsync(string token, CancellationToken cancellationToken = default)
+    {
+        var validationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = _jwtSettings.Issuer,
+            ValidateAudience = true,
+            ValidAudience = TwoFactorChallengeAudience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = _signingCredentials.Key,
+            ValidateLifetime = true,
+        };
+
+        ClaimsPrincipal principal;
+        try
+        {
+            principal = new JwtSecurityTokenHandler().ValidateToken(token, validationParameters, out _);
+        }
+        catch (Exception)
+        {
+            // Never logs or echoes the raw token value - same "a raw token value never appears
+            // in a log line or an error message" rule applied to refresh tokens elsewhere in
+            // this class, extended here even though this token isn't the refresh token itself.
+            throw new BusinessRuleException("The two-factor challenge token is invalid or has expired.");
+        }
+
+        var subject = principal.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        if (subject is null || !int.TryParse(subject, out var userId))
+        {
+            throw new BusinessRuleException("The two-factor challenge token is invalid or has expired.");
+        }
+
+        return Task.FromResult(userId);
     }
 
     private async Task<(TokenResponse Response, RefreshToken Entity)> IssueTokensInternalAsync(

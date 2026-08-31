@@ -42,4 +42,27 @@ public interface ITokenService
     /// the composition root never touches <c>BlacklistedAccessToken</c> directly.
     /// </summary>
     Task<bool> IsAccessTokenBlacklistedAsync(string jti, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a short-lived "two-factor challenge token" for <paramref name="user"/> - the
+    /// "partial login ticket" <c>AuthService.LoginAsync</c> returns instead of a real
+    /// <c>TokenResponse</c> when the account has 2FA enabled. This is a signed JWT built with the
+    /// same machinery as a real access token, but with a different <c>aud</c> claim than the one
+    /// <c>Program.cs</c>'s JWT Bearer scheme validates against - that mismatch is what stops this
+    /// token from ever being usable as a Bearer token against a protected endpoint, without any
+    /// change to the main token validation pipeline. Not persisted anywhere: it grants no access
+    /// to a protected resource by itself, only the right to attempt
+    /// <see cref="ValidateTwoFactorChallengeTokenAsync"/> within its own short expiry.
+    /// </summary>
+    Task<string> IssueTwoFactorChallengeTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates a two-factor challenge token issued by
+    /// <see cref="IssueTwoFactorChallengeTokenAsync"/> (signature, issuer, its own distinct
+    /// audience, and lifetime) and returns the user id from its <c>sub</c> claim. Throws
+    /// <c>BusinessRuleException</c> with a generic message on any validation failure - the raw
+    /// token value is never logged or echoed back, matching the project's rule against raw
+    /// tokens ever reaching a log line or an error message.
+    /// </summary>
+    Task<int> ValidateTwoFactorChallengeTokenAsync(string token, CancellationToken cancellationToken = default);
 }
