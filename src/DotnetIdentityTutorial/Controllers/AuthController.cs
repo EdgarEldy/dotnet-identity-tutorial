@@ -151,8 +151,15 @@ public sealed class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Rate-limited by the same "auth" policy as <see cref="Login"/>/<see cref="VerifyTwoFactor"/>:
+    /// a 6-digit TOTP code is exactly as guessable here, at setup time, as it is once 2FA is
+    /// already active, and this action is otherwise gated only by an ordinary bearer token, not
+    /// Identity's own lockout counting.
+    /// </summary>
     [HttpPost("Confirm2fa")]
     [Authorize]
+    [EnableRateLimiting(RateLimiterPolicies.Auth)]
     public async Task<ActionResult<Confirm2faResponse>> Confirm2fa([FromBody] Confirm2faRequest request, CancellationToken cancellationToken)
     {
         var response = await _mfaService.Confirm2faAsync(GetCurrentUserId(), request, cancellationToken);
