@@ -73,6 +73,16 @@ public sealed class TokenService : ITokenService
     /// </summary>
     private const string TwoFactorChallengeAudience = "DotnetIdentityTutorial.TwoFactorChallenge";
 
+    /// <summary>
+    /// A custom claim type distinct from <see cref="ApplicationUserClaimsPrincipalFactory"/>'s
+    /// own <c>SecurityStamp</c> claim (which a real access token strips before signing, since
+    /// that one is meant only for Identity's cookie-validation purposes) - this challenge token
+    /// intentionally carries its own stamp snapshot, compared against the user's current stamp
+    /// in <see cref="ValidateTwoFactorChallengeTokenAsync"/> to reject a stale challenge issued
+    /// before a password change.
+    /// </summary>
+    private const string TwoFactorSecurityStampClaimType = "two_factor_security_stamp";
+
     private readonly AppDbContext _dbContext;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserClaimsPrincipalFactory<ApplicationUser> _claimsPrincipalFactory;
@@ -228,14 +238,18 @@ public sealed class TokenService : ITokenService
     {
         var now = _timeProvider.GetUtcNow();
 
-        // Only a subject and a fresh jti - unlike a real access token, this carries none of the
-        // caller's role/permission claims. It grants nothing on its own beyond the right to
-        // attempt VerifyTwoFactor within its own short expiry, so there is nothing else worth
-        // putting in it, and less to leak if it ever ends up somewhere it shouldn't.
+        // Subject, a fresh jti, and the user's current SecurityStamp - unlike a real access
+        // token, this carries none of the caller's role/permission claims, but it does need the
+        // stamp: without it, a password reset/change landing in the up-to-5-minute gap between
+        // Login returning this challenge and VerifyTwoFactorAsync consuming it would go
+        // unnoticed, issuing real tokens for a credential that no longer applies - the same class
+        // of staleness RefreshToken.SecurityStampAtIssuance already guards against for refresh
+        // tokens, applied here to this second kind of token.
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(TwoFactorSecurityStampClaimType, user.SecurityStamp ?? string.Empty),
         };
 
         var jwt = new JwtSecurityToken(
@@ -249,7 +263,7 @@ public sealed class TokenService : ITokenService
         return Task.FromResult(new JwtSecurityTokenHandler().WriteToken(jwt));
     }
 
-    public Task<int> ValidateTwoFactorChallengeTokenAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<int> ValidateTwoFactorChallengeTokenAsync(string token, CancellationToken cancellationToken = default)
     {
         var validationParameters = new TokenValidationParameters
         {
@@ -260,6 +274,12 @@ public sealed class TokenService : ITokenService
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = _signingCredentials.Key,
             ValidateLifetime = true,
+            // The library's own default ClockSkew is 5 minutes, tolerating a token past its
+            // exp claim by that much - stacked on top of this token's own 5-minute
+            // TwoFactorChallengeMinutes lifetime, that would silently double the "deliberately
+            // much shorter" window IssueTwoFactorChallengeTokenAsync's own remarks describe.
+            // Zero here means exp is enforced exactly as issued.
+            ClockSkew = TimeSpan.Zero,
         };
 
         ClaimsPrincipal principal;
@@ -277,8 +297,12 @@ public sealed class TokenService : ITokenService
             var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
             principal = handler.ValidateToken(token, validationParameters, out _);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
+            // SecurityTokenException covers every real validation failure (expired, bad
+            // signature, wrong audience/issuer); ArgumentException covers a string that isn't
+            // even shaped like a JWT. Anything else (e.g. a misconfiguration bug) is left to
+            // bubble up as a real 500 instead of being reported as ordinary bad user input.
             // Never logs or echoes the raw token value - same "a raw token value never appears
             // in a log line or an error message" rule applied to refresh tokens elsewhere in
             // this class, extended here even though this token isn't the refresh token itself.
@@ -291,7 +315,19 @@ public sealed class TokenService : ITokenService
             throw new BusinessRuleException("The two-factor challenge token is invalid or has expired.");
         }
 
-        return Task.FromResult(userId);
+        var stampAtIssuance = principal.FindFirstValue(TwoFactorSecurityStampClaimType) ?? string.Empty;
+        var user = await _userManager.FindByIdAsync(subject);
+        var currentStamp = user?.SecurityStamp ?? string.Empty;
+        if (user is null || !string.Equals(stampAtIssuance, currentStamp, StringComparison.Ordinal))
+        {
+            // Same staleness rejection RefreshAsync applies to a SecurityStamp mismatch on a
+            // refresh token - the password (or anything else that rotates the stamp) changed
+            // since this challenge was issued, so it no longer represents a valid, current
+            // password verification.
+            throw new BusinessRuleException("The two-factor challenge token is invalid or has expired.");
+        }
+
+        return userId;
     }
 
     private async Task<(TokenResponse Response, RefreshToken Entity)> IssueTokensInternalAsync(
