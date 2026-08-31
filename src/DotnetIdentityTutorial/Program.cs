@@ -7,6 +7,7 @@ using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.ErrorHandling;
 using DotnetIdentityTutorial.Filters;
 using DotnetIdentityTutorial.Identity;
+using DotnetIdentityTutorial.Services;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using FluentValidation;
@@ -49,6 +50,13 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IRbacService, RbacService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+
+// Bound once here from the Jwt config section and shared by TokenService (issuance) and the
+// TokenValidationParameters below (validation) - see JwtSettings' own remarks for why reading
+// the same five keys as independent raw strings in two places was worth consolidating.
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
+var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
+    ?? throw new InvalidOperationException($"Missing or invalid '{JwtSettings.SectionName}' configuration section.");
 
 // Daily housekeeping for RefreshTokens/BlacklistedAccessTokens - see
 // ExpiredTokenCleanupService's own remarks for why this is safe to run unconditionally.
@@ -99,22 +107,23 @@ builder.Services.AddAuthentication(options =>
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidIssuer = jwtSettings.Issuer,
             ValidateAudience = true,
-            ValidAudience = builder.Configuration["Jwt:Audience"],
+            ValidAudience = jwtSettings.Audience,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:SigningKey"]!)),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SigningKey)),
             ValidateLifetime = true,
         };
 
         options.Events = new JwtBearerEvents
         {
             // Access tokens are otherwise validated statelessly - no database round trip at
-            // all - except for this one check: a token's jti is looked up against
-            // BlacklistedAccessToken so an explicit logout (TokenService.RevokeAsync) takes
-            // effect immediately instead of waiting up to Jwt:AccessTokenMinutes for the token
-            // to expire on its own. AppDbContext is resolved from the request's own scope, not
-            // captured from this closure, since this event fires once per request.
+            // all - except for this one check: a token's jti is checked against
+            // BlacklistedAccessToken (via ITokenService, not AppDbContext directly - that
+            // ownership stays with TokenService) so an explicit logout takes effect immediately
+            // instead of waiting up to Jwt:AccessTokenMinutes for the token to expire on its
+            // own. ITokenService is resolved from the request's own scope, not captured from
+            // this closure, since this event fires once per request.
             OnTokenValidated = async context =>
             {
                 var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
@@ -124,9 +133,8 @@ builder.Services.AddAuthentication(options =>
                     return;
                 }
 
-                var dbContext = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                var isBlacklisted = await dbContext.BlacklistedAccessTokens
-                    .AnyAsync(b => b.Jti == jti);
+                var tokenService = context.HttpContext.RequestServices.GetRequiredService<ITokenService>();
+                var isBlacklisted = await tokenService.IsAccessTokenBlacklistedAsync(jti, context.HttpContext.RequestAborted);
 
                 if (isBlacklisted)
                 {
