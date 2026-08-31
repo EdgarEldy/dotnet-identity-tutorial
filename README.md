@@ -314,11 +314,11 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `IMfaService`/`MfaService`: wraps `UserManager.GenerateAuthenticatorKeyAsync`, `VerifyTwoFactorTokenAsync`, `GenerateNewTwoFactorRecoveryCodesAsync`, `SetTwoFactorEnabledAsync`
-- [ ] `VerifyTwoFactor` is rate-limited via the same `"auth"` policy defined in `feature/auth-flows` - a 6-digit TOTP code has limited entropy, and this endpoint is exactly as brute-forceable as `Login` itself, so it gets the same protection rather than being overlooked as a follow-up step to an already-authenticated-feeling flow
-- [ ] `AuthService.LoginAsync` updated: if `TwoFactorEnabled` is true, returns a partial result (no tokens yet) instead of calling `ITokenService.IssueTokensAsync` directly; `VerifyTwoFactor` completes the flow and issues tokens only after a valid TOTP code or recovery code
-- [ ] `AuthController` extended with the four endpoints above
-- [ ] Tests: enabling 2FA, a login attempt correctly stopping short of issuing tokens, completing it with a valid code, rejecting an invalid one, and recovery-code login consuming a code so it can't be reused
+- [x] `IMfaService`/`MfaService`: wraps `UserManager.GenerateAuthenticatorKeyAsync`, `VerifyTwoFactorTokenAsync`, `GenerateNewTwoFactorRecoveryCodesAsync`, `SetTwoFactorEnabledAsync`
+- [x] `VerifyTwoFactor` is rate-limited via the same `"auth"` policy defined in `feature/auth-flows` - a 6-digit TOTP code has limited entropy, and this endpoint is exactly as brute-forceable as `Login` itself, so it gets the same protection rather than being overlooked as a follow-up step to an already-authenticated-feeling flow
+- [x] `AuthService.LoginAsync` updated: if `TwoFactorEnabled` is true, returns a partial result (no tokens yet) instead of calling `ITokenService.IssueTokensAsync` directly; `VerifyTwoFactor` completes the flow and issues tokens only after a valid TOTP code or recovery code
+- [x] `AuthController` extended with the four endpoints above
+- [x] Tests: enabling 2FA, a login attempt correctly stopping short of issuing tokens, completing it with a valid code, rejecting an invalid one, and recovery-code login consuming a code so it can't be reused
 
 ## feature/audit-logging
 

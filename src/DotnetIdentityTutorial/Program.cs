@@ -53,6 +53,7 @@ builder.Services.AddScoped<IRbacService, RbacService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IMfaService, MfaService>();
 
 // Bound once here from the Jwt config section and shared by TokenService (issuance) and the
 // TokenValidationParameters below (validation) - see JwtSettings' own remarks for why reading

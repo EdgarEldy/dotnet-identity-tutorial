@@ -1,6 +1,7 @@
 using DotnetIdentityTutorial.Dtos.Auth;
 using DotnetIdentityTutorial.Dtos.User;
 using DotnetIdentityTutorial.Exceptions;
+using DotnetIdentityTutorial.Extensions;
 using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -68,7 +69,7 @@ public sealed class AuthService : IAuthService
                 return;
             }
 
-            ThrowIfFailed(createResult, "Registration");
+            createResult.ThrowIfFailed("Registration");
         }
 
         var roleResult = await _userManager.AddToRoleAsync(user, DefaultRoleName);
@@ -79,7 +80,7 @@ public sealed class AuthService : IAuthService
             // account with no confirmation email ever sent and no way to retry registration for
             // that email again.
             await _userManager.DeleteAsync(user);
-            ThrowIfFailed(roleResult, "Default role assignment");
+            roleResult.ThrowIfFailed("Default role assignment");
         }
 
         await _auditService.LogAsync("AssignRole", "User", user.Id.ToString(), new { Role = DefaultRoleName });
@@ -96,10 +97,10 @@ public sealed class AuthService : IAuthService
             ?? throw new ResourceNotFoundException($"User {userId} was not found.");
 
         var result = await _userManager.ConfirmEmailAsync(user, token);
-        ThrowIfFailed(result, "Email confirmation");
+        result.ThrowIfFailed("Email confirmation");
     }
 
-    public async Task<TokenResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user is null)
@@ -114,9 +115,21 @@ public sealed class AuthService : IAuthService
         // with Identity's own lockout counting - a failed attempt increments AccessFailedCount
         // and locks the account after Lockout.MaxFailedAccessAttempts - and its IsNotAllowed
         // result already reflects RequireConfirmedAccount without this method re-checking
-        // EmailConfirmed itself. No 2FA branch here yet: LoginAsync always issues tokens
-        // directly on success, per feature/mfa's own note that it - not this branch - is what
-        // introduces the "2FA required" partial result.
+        // EmailConfirmed itself.
+        //
+        // Deliberately CheckPasswordSignInAsync, not the higher-level PasswordSignInAsync:
+        // PasswordSignInAsync is the one that inspects TwoFactorEnabled and returns
+        // SignInResult.TwoFactorRequired (via its own internal SignInOrTwoFactorAsync), but it
+        // does so by also establishing Identity's own cookie-based sign-in ticket
+        // (HttpContext.SignInAsync against the cookie scheme AddIdentity registers) as a side
+        // effect of a successful check - a side effect with no place in this stateless JWT API.
+        // CheckPasswordSignInAsync never sets RequiresTwoFactor at all (confirmed by reading the
+        // installed SignInManager's own implementation, not assumed): it only verifies the
+        // password and applies lockout counting, deliberately stopping short of cookie issuance
+        // or 2FA gating. 2FA therefore has to be checked explicitly below, once the password
+        // itself is confirmed correct, via the same SignInManager.IsTwoFactorEnabledAsync check
+        // PasswordSignInAsync uses internally - not by reading result.RequiresTwoFactor, which
+        // this call path never sets.
         var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
 
         if (result.IsLockedOut)
@@ -134,6 +147,61 @@ public sealed class AuthService : IAuthService
             throw new BusinessRuleException("Invalid email or password.");
         }
 
+        if (await _signInManager.IsTwoFactorEnabledAsync(user))
+        {
+            // The password check already succeeded at this point - what's missing is the second
+            // factor, not proof of identity itself. Stop short of issuing real tokens: instead
+            // hand back a short-lived challenge token (the "partial login ticket") that only
+            // VerifyTwoFactorAsync can exchange for a real token pair, and only after a valid
+            // TOTP/recovery code. See ITokenService.IssueTwoFactorChallengeTokenAsync's own
+            // remarks for why a signed JWT with a different audience - not Identity's own
+            // two-factor cookie - is what makes this safe in a stateless API.
+            var twoFactorToken = await _tokenService.IssueTwoFactorChallengeTokenAsync(user, cancellationToken);
+            return new LoginResult(null, twoFactorToken);
+        }
+
+        var tokens = await _tokenService.IssueTokensAsync(user, cancellationToken);
+        return new LoginResult(tokens, null);
+    }
+
+    public async Task<TokenResponse> VerifyTwoFactorAsync(VerifyTwoFactorRequest request, CancellationToken cancellationToken = default)
+    {
+        var userId = await _tokenService.ValidateTwoFactorChallengeTokenAsync(request.TwoFactorToken, cancellationToken);
+
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new ResourceNotFoundException($"User {userId} was not found.");
+
+        // LoginAsync's own lockout check happens once, at the password step - but the challenge
+        // token can be presented up to TokenService's own 5-minute window later, long enough for
+        // an admin to lock the account (UserAdminService.LockUserAsync) in between. Without this,
+        // a lock applied mid-flow would have no effect on a login already past its password step.
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            throw new BusinessRuleException("This account is locked out. Try again later.");
+        }
+
+        // Tries a TOTP code first, then falls back to a recovery code - never revealing to the
+        // caller which of the two was attempted, only whether the overall attempt succeeded.
+        // Distinguishing the two failure modes would tell an attacker something about the shape
+        // of the code they submitted, the same anti-enumeration reasoning LoginAsync's own
+        // generic "Invalid email or password" already follows.
+        var isValidTotp = await _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, request.Code);
+        if (!isValidTotp)
+        {
+            var recoveryResult = await _userManager.RedeemTwoFactorRecoveryCodeAsync(user, request.Code);
+            if (!recoveryResult.Succeeded)
+            {
+                // Shares Identity's own lockout counter with a wrong password (CheckPasswordSignInAsync
+                // already does this for Login) - a 6-digit TOTP code guarding an already-password-
+                // verified session still needs its own brute-force accounting, not just the "auth"
+                // rate limiter's shared-across-clients budget, or repeated guesses against one
+                // account would go uncounted past the rate limiter's own window.
+                await _userManager.AccessFailedAsync(user);
+                throw new BusinessRuleException("Invalid two-factor code.");
+            }
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
         return await _tokenService.IssueTokensAsync(user, cancellationToken);
     }
 
@@ -184,7 +252,7 @@ public sealed class AuthService : IAuthService
         // family reject at its SecurityStamp comparison in TokenService.RefreshAsync afterward.
         // Nothing extra is needed here for that invariant to hold.
         var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
-        ThrowIfFailed(result, "Password reset");
+        result.ThrowIfFailed("Password reset");
     }
 
     public async Task ChangePasswordAsync(int userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
@@ -195,7 +263,7 @@ public sealed class AuthService : IAuthService
         // Same automatic SecurityStamp rotation as ResetPasswordAsync above - ChangePasswordAsync
         // goes through the same internal UpdatePasswordHash path in UserManager.
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
-        ThrowIfFailed(result, "Password change");
+        result.ThrowIfFailed("Password change");
     }
 
     public Task LogoutAsync(int userId, string accessTokenJti, DateTimeOffset accessTokenExpiresAt, CancellationToken cancellationToken = default)
@@ -260,21 +328,4 @@ public sealed class AuthService : IAuthService
     /// </summary>
     private static bool IsDuplicateAccountError(IdentityResult result)
         => result.Errors.All(e => e.Code is "DuplicateUserName" or "DuplicateEmail");
-
-    /// <summary>
-    /// Shared translation from a failed <see cref="IdentityResult"/> to the project's own
-    /// <see cref="BusinessRuleException"/>, used at every call site above except
-    /// <see cref="RegisterAsync"/>'s account-creation step (that one needs the enumeration-safe
-    /// branch above instead of an unconditional throw).
-    /// </summary>
-    private static void ThrowIfFailed(IdentityResult result, string action)
-    {
-        if (result.Succeeded)
-        {
-            return;
-        }
-
-        var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-        throw new BusinessRuleException($"{action} failed: {errors}");
-    }
 }
