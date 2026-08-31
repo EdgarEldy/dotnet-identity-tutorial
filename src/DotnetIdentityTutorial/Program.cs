@@ -4,6 +4,7 @@ using DotnetIdentityTutorial.Filters;
 using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
+using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,6 +37,14 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IRbacService, RbacService>();
+builder.Services.AddScoped<IUserAdminService, UserAdminService>();
+
+// Discovers every FluentValidation AbstractValidator<T> in this assembly (RoleRequestValidator,
+// PermissionRequestValidator, ...) and registers it as IValidator<T> in DI - the global
+// ValidationFilter resolves them from there, no per-controller wiring needed.
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));

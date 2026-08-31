@@ -249,11 +249,11 @@ DotnetIdentityTutorial/
 ### Tasks
 
 - [x] `Permission`, `RolePermission` entities, Fluent API configuration (done early, in `feature/identity-setup`, since startup seeding there needed them to exist; see that branch's checklist note and `.claude/CLAUDE.md`)
-- [ ] `IRbacService`/`RbacService`: permission CRUD, role CRUD, assignment/removal operations - every assignment/removal call also writes an entry via `IAuditService` (from `feature/audit-logging`; stub the call now, wire the real implementation once that branch lands)
-- [ ] `IUserAdminService`/`UserAdminService`: user listing/detail, lock/unlock - same audit hook
-- [ ] `RegisterRequestValidator`-style `FluentValidation` validators for every new request DTO introduced in this branch
-- [ ] `UsersController`, `RolesController`
-- [ ] Tests: assignment/removal operations against a real database, idempotency, validators rejecting malformed input as `ValidationProblemDetails`
+- [x] `IRbacService`/`RbacService`: permission CRUD, role CRUD, assignment/removal operations - every assignment/removal call also writes an entry via `IAuditService` (from `feature/audit-logging`; stub the call now, wire the real implementation once that branch lands)
+- [x] `IUserAdminService`/`UserAdminService`: user listing/detail, lock/unlock - same audit hook
+- [x] `RegisterRequestValidator`-style `FluentValidation` validators for every new request DTO introduced in this branch
+- [x] `UsersController`, `RolesController` (plus `PermissionsController`, needed for `/api/v1/Permissions` under the default routing convention)
+- [x] Tests: assignment/removal operations against a real database, idempotency, validators rejecting malformed input - covered as `ValidationProblemDetails` isn't reachable through HTTP yet on this branch (see the `[Authorize]` deviation in `.claude/CLAUDE.md`), so validator rejection is tested directly against the validator instead
 
 ## feature/claims-and-authorization
 
