@@ -198,34 +198,34 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] Create the solution and Web API project (`dotnet new webapi` targeting .NET 10)
-- [ ] NuGet packages: `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.Design`, `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `FluentValidation.AspNetCore`
-- [ ] Test packages: `xunit`, `Moq`, `Microsoft.AspNetCore.Mvc.Testing`, `Testcontainers.PostgreSql`, `Microsoft.Extensions.TimeProvider.Testing`
-- [ ] Package layout above
-- [ ] Controllers use the default ASP.NET Core routing convention (`[Route("api/v1/[controller]")]`), action method names resolving naturally into their route segments - no `LowercaseUrls` override, no hand-typed kebab-case
-- [ ] Pagination helper for list endpoints: sets `X-Total-Count` and `Link` (`next`/`prev`) response headers rather than a body wrapper - see [above](#success-responses-and-error-responses-minimal-http-semantics--problemdetails)
-- [ ] `GlobalExceptionHandler` (`IExceptionHandler`), registered via `AddExceptionHandler<GlobalExceptionHandler>()` + `AddProblemDetails()`; maps `ResourceNotFoundException` → 404, `BusinessRuleException` → 422, anything unmapped → 500, each as a `ProblemDetails`
-- [ ] `ValidationFilter` (`IAsyncActionFilter`): resolves `IValidator<T>` for the action's request DTO, runs it before the action executes, short-circuits with a `ValidationProblemDetails` (400) on failure - registered globally so no controller needs to call it explicitly
-- [ ] `TimeProvider` registered as a singleton (`builder.Services.AddSingleton(TimeProvider.System)`), injected anywhere expiry or timestamp logic is needed, instead of calling `DateTime.UtcNow` directly
-- [ ] CORS: a named policy for the frontend origin(s), configured from `appsettings`, applied globally
-- [ ] `UseHttpsRedirection()` and `UseHsts()` (the latter outside the `Development` environment), applied before any other middleware in the pipeline
-- [ ] `IEmailService`/`EmailService` (contract/implementation, `Services/Interfaces`/`Services/Implementations`): `SendConfirmationEmailAsync`, `SendPasswordResetEmailAsync` - for this tutorial, the implementation logs the link rather than sending a real email, to stay self-contained without a mail provider dependency. This is a project-defined interface, distinct from Identity's own `IEmailSender<TUser>` extension point (relevant only to `MapIdentityApi`/the scaffolded Identity UI, neither of which this project uses, since `AuthController` calls `UserManager`'s token methods directly)
-- [ ] `appsettings.json`/`appsettings.Development.json`: PostgreSQL connection string, JWT signing key, access/refresh token lifetimes, allowed CORS origins
-- [ ] Swagger UI configuration with the JWT Bearer "Authorize" button
-- [ ] `docker-compose.yml` (API + PostgreSQL), `Dockerfile`
-- [ ] `.github/workflows/ci.yml`: `dotnet build` + `dotnet test`
+- [x] Create the solution and Web API project (`dotnet new webapi` targeting .NET 10)
+- [x] NuGet packages: `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, `Microsoft.EntityFrameworkCore.Design`, `Npgsql.EntityFrameworkCore.PostgreSQL`, `Microsoft.AspNetCore.Authentication.JwtBearer`, `Swashbuckle.AspNetCore`, `FluentValidation.AspNetCore`
+- [x] Test packages: `xunit`, `Moq`, `Microsoft.AspNetCore.Mvc.Testing`, `Testcontainers.PostgreSql`, `Microsoft.Extensions.TimeProvider.Testing`
+- [x] Package layout above
+- [x] Controllers use the default ASP.NET Core routing convention (`[Route("api/v1/[controller]")]`), action method names resolving naturally into their route segments - no `LowercaseUrls` override, no hand-typed kebab-case
+- [x] Pagination helper for list endpoints: sets `X-Total-Count` and `Link` (`next`/`prev`) response headers rather than a body wrapper - see [above](#success-responses-and-error-responses-minimal-http-semantics--problemdetails)
+- [x] `GlobalExceptionHandler` (`IExceptionHandler`), registered via `AddExceptionHandler<GlobalExceptionHandler>()` + `AddProblemDetails()`; maps `ResourceNotFoundException` → 404, `BusinessRuleException` → 422, anything unmapped → 500, each as a `ProblemDetails`
+- [x] `ValidationFilter` (`IAsyncActionFilter`): resolves `IValidator<T>` for the action's request DTO, runs it before the action executes, short-circuits with a `ValidationProblemDetails` (400) on failure - registered globally so no controller needs to call it explicitly
+- [x] `TimeProvider` registered as a singleton (`builder.Services.AddSingleton(TimeProvider.System)`), injected anywhere expiry or timestamp logic is needed, instead of calling `DateTime.UtcNow` directly
+- [x] CORS: a named policy for the frontend origin(s), configured from `appsettings`, applied globally
+- [x] `UseHttpsRedirection()` and `UseHsts()` (the latter outside the `Development` environment), applied before any other middleware in the pipeline
+- [x] `IEmailService`/`EmailService` (contract/implementation, `Services/Interfaces`/`Services/Implementations`): `SendConfirmationEmailAsync`, `SendPasswordResetEmailAsync` - for this tutorial, the implementation logs the link rather than sending a real email, to stay self-contained without a mail provider dependency. This is a project-defined interface, distinct from Identity's own `IEmailSender<TUser>` extension point (relevant only to `MapIdentityApi`/the scaffolded Identity UI, neither of which this project uses, since `AuthController` calls `UserManager`'s token methods directly)
+- [x] `appsettings.json`/`appsettings.Development.json`: PostgreSQL connection string, JWT signing key, access/refresh token lifetimes, allowed CORS origins
+- [x] Swagger UI configuration with the JWT Bearer "Authorize" button
+- [x] `docker-compose.yml` (API + PostgreSQL), `Dockerfile`
+- [x] `.github/workflows/ci.yml`: `dotnet build` + `dotnet test`
 
 ## feature/identity-setup
 
 ### Tasks
 
-- [ ] `ApplicationUser : IdentityUser<int>` (adds `FirstName`, `LastName`), `ApplicationRole : IdentityRole<int>`
-- [ ] `AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, int>`
-- [ ] `Program.cs`: `AddIdentity<ApplicationUser, ApplicationRole>()`, password policy, lockout policy
-- [ ] Initial EF Core migration - Identity's own schema only
-- [ ] Startup seeding: default roles (`ADMIN`, `USER`) via `RoleManager`
-- [ ] Startup seeding, continued: a baseline set of `Permission` rows covering every resource/action this project defines (`USER:READ`, `USER:WRITE`, `ROLE:READ`, `ROLE:WRITE`, `PERMISSION:READ`, `PERMISSION:WRITE`, `AUDIT:READ`, ...), each immediately assigned to `ADMIN` via `RolePermission` - without this, `[Authorize(Policy = "PERMISSION:WRITE")]` on `POST /api/v1/Permissions` (added in `feature/rbac`) can never be satisfied by anyone, since no account would hold that permission and the endpoint that grants it requires it circularly
-- [ ] Tests: migration applies cleanly against Testcontainers PostgreSQL, both seeding steps are idempotent (running startup twice doesn't duplicate roles or permissions, doesn't fail on an already-existing `RolePermission` row)
+- [x] `ApplicationUser : IdentityUser<int>` (adds `FirstName`, `LastName`), `ApplicationRole : IdentityRole<int>`
+- [x] `AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, int>`
+- [x] `Program.cs`: `AddIdentity<ApplicationUser, ApplicationRole>()`, password policy, lockout policy
+- [x] Initial EF Core migration - Identity's own schema, plus `Permissions`/`RolePermissions` (pulled forward from `feature/rbac`'s entities, see the checklist note there and `.claude/CLAUDE.md`'s "Deviations")
+- [x] Startup seeding: default roles (`ADMIN`, `USER`) via `RoleManager`
+- [x] Startup seeding, continued: a baseline set of `Permission` rows covering every resource/action this project defines (`USER:READ`, `USER:WRITE`, `ROLE:READ`, `ROLE:WRITE`, `PERMISSION:READ`, `PERMISSION:WRITE`, `AUDIT:READ`, ...), each immediately assigned to `ADMIN` via `RolePermission` - without this, `[Authorize(Policy = "PERMISSION:WRITE")]` on `POST /api/v1/Permissions` (added in `feature/rbac`) can never be satisfied by anyone, since no account would hold that permission and the endpoint that grants it requires it circularly
+- [x] Tests: migration applies cleanly against Testcontainers PostgreSQL, both seeding steps are idempotent (running startup twice doesn't duplicate roles or permissions, doesn't fail on an already-existing `RolePermission` row)
 
 ## feature/rbac
 
@@ -248,30 +248,30 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `Permission`, `RolePermission` entities, Fluent API configuration
-- [ ] `IRbacService`/`RbacService`: permission CRUD, role CRUD, assignment/removal operations - every assignment/removal call also writes an entry via `IAuditService` (from `feature/audit-logging`; stub the call now, wire the real implementation once that branch lands)
-- [ ] `IUserAdminService`/`UserAdminService`: user listing/detail, lock/unlock - same audit hook
-- [ ] `RegisterRequestValidator`-style `FluentValidation` validators for every new request DTO introduced in this branch
-- [ ] `UsersController`, `RolesController`
-- [ ] Tests: assignment/removal operations against a real database, idempotency, validators rejecting malformed input as `ValidationProblemDetails`
+- [x] `Permission`, `RolePermission` entities, Fluent API configuration (done early, in `feature/identity-setup`, since startup seeding there needed them to exist; see that branch's checklist note and `.claude/CLAUDE.md`)
+- [x] `IRbacService`/`RbacService`: permission CRUD, role CRUD, assignment/removal operations - every assignment/removal call also writes an entry via `IAuditService` (from `feature/audit-logging`; stub the call now, wire the real implementation once that branch lands)
+- [x] `IUserAdminService`/`UserAdminService`: user listing/detail, lock/unlock - same audit hook
+- [x] `RegisterRequestValidator`-style `FluentValidation` validators for every new request DTO introduced in this branch
+- [x] `UsersController`, `RolesController` (plus `PermissionsController`, needed for `/api/v1/Permissions` under the default routing convention)
+- [x] Tests: assignment/removal operations against a real database, idempotency, validators rejecting malformed input - covered as `ValidationProblemDetails` isn't reachable through HTTP yet on this branch (see the `[Authorize]` deviation in `.claude/CLAUDE.md`), so validator rejection is tested directly against the validator instead
 
 ## feature/claims-and-authorization
 
 ### Tasks
 
-- [ ] `ApplicationUserClaimsPrincipalFactory`, registered in place of the default factory
-- [ ] `PermissionRequirement`, `PermissionAuthorizationHandler` (pure claims check), `PermissionPolicyProvider`
-- [ ] Tests: claims factory output for multi-role users (no duplicate permission claims), handler success/failure, policy provider building a policy for an arbitrary permission string
+- [x] `ApplicationUserClaimsPrincipalFactory`, registered in place of the default factory
+- [x] `PermissionRequirement`, `PermissionAuthorizationHandler` (pure claims check), `PermissionPolicyProvider`
+- [x] Tests: claims factory output for multi-role users (no duplicate permission claims), handler success/failure, policy provider building a policy for an arbitrary permission string
 
 ## feature/token-lifecycle
 
 ### Tasks
 
-- [ ] `RefreshToken`, `BlacklistedAccessToken` entities, both referencing `TimeProvider` (injected into `ITokenService`) rather than `DateTime.UtcNow` for every timestamp they record
-- [ ] `ITokenService`/`TokenService`: `IssueTokensAsync` (builds the claims principal, issues the JWT with a unique `jti`, issues and persists a refresh token capturing the user's *current* `SecurityStamp`), `RefreshAsync` (validates the token, compares its captured `SecurityStamp` against the user's current one - mismatch means revoke-and-reject regardless of expiry - then rotates), `RevokeAsync` (logout: blacklists the access token's `jti`, revokes the refresh token family)
-- [ ] JWT Bearer `OnTokenValidated` event: checks the `jti` against `BlacklistedAccessToken`
-- [ ] `ExpiredTokenCleanupService` (`IHostedService`/`BackgroundService`, using the injected `TimeProvider`): runs on a daily interval, deletes `RefreshToken` and `BlacklistedAccessToken` rows past their `expires_at` - without this, both tables grow unbounded, since revocation only marks a row, it never removes it. This is a housekeeping concern, not a security one: a revoked or expired token is already rejected regardless of whether its row still exists
-- [ ] Tests (using `FakeTimeProvider` to simulate elapsed time without real delays): issue → refresh → refresh again (rotation), reused refresh token triggering family revocation, a password change (simulated `SecurityStamp` rotation) invalidating an outstanding refresh token even before its natural expiry
+- [x] `RefreshToken`, `BlacklistedAccessToken` entities, both referencing `TimeProvider` (injected into `ITokenService`) rather than `DateTime.UtcNow` for every timestamp they record
+- [x] `ITokenService`/`TokenService`: `IssueTokensAsync` (builds the claims principal, issues the JWT with a unique `jti`, issues and persists a refresh token capturing the user's *current* `SecurityStamp`), `RefreshAsync` (validates the token, compares its captured `SecurityStamp` against the user's current one - mismatch means revoke-and-reject regardless of expiry - then rotates), `RevokeAsync` (logout: blacklists the access token's `jti`, revokes the refresh token family)
+- [x] JWT Bearer `OnTokenValidated` event: checks the `jti` against `BlacklistedAccessToken`
+- [x] `ExpiredTokenCleanupService` (`IHostedService`/`BackgroundService`, using the injected `TimeProvider`): runs on a daily interval, deletes `RefreshToken` and `BlacklistedAccessToken` rows past their `expires_at` - without this, both tables grow unbounded, since revocation only marks a row, it never removes it. This is a housekeeping concern, not a security one: a revoked or expired token is already rejected regardless of whether its row still exists
+- [x] Tests (using `FakeTimeProvider` to simulate elapsed time without real delays): issue → refresh → refresh again (rotation), reused refresh token triggering family revocation, a password change (simulated `SecurityStamp` rotation) invalidating an outstanding refresh token even before its natural expiry
 
 ## feature/auth-flows
 
@@ -291,15 +291,15 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `IAuthService`/`AuthService`: every flow above, delegating token issuance to `ITokenService`
-- [ ] `RegisterAsync` and `ForgotPasswordAsync` call `IEmailService` (from `feature/core-architecture`) to send the confirmation link and the reset link, respectively, instead of only generating a token that nothing ever delivers
-- [ ] `ChangePasswordAsync`: wraps `UserManager.ChangePasswordAsync(user, currentPassword, newPassword)` - distinct from `ResetPasswordAsync`, which is for a user who has lost access and can't provide a current password; a password change here also revokes every outstanding refresh token family for the user (the same `SecurityStamp`-comparison mechanism from `feature/token-lifecycle` handles this automatically, since `ChangePasswordAsync` rotates the stamp)
-- [ ] `Program.cs`: `options.SignIn.RequireConfirmedAccount = true` set explicitly on `AddIdentity<...>()` - without it, `Login` succeeds for an account that never completed `ConfirmEmail`, making the activation flow purely cosmetic
-- [ ] `ForgotPasswordAsync` returns the exact same response - same status code, same body - whether or not the submitted email matches an existing account, and takes roughly the same amount of time either way (no early return that skips the token-generation work); without this, the endpoint becomes a user-enumeration oracle, since a distinguishable response (or a measurably faster one) tells an attacker which emails are registered
-- [ ] `AuthController`
-- [ ] `RateLimiterPolicies`: a named fixed-window policy (`"auth"`, e.g. 5 requests/minute per IP) applied via `[EnableRateLimiting("auth")]` on `Register`, `Login`, and `ForgotPassword` - Identity's own lockout already protects a single account from brute force, this protects the endpoint itself from distributed attempts across many accounts; the same named policy is reused by `feature/mfa`'s `VerifyTwoFactor` endpoint
-- [ ] `Program.cs` finalized: `AddAuthentication().AddJwtBearer(...)`, `AddAuthorization`, `AddRateLimiter(...)`
-- [ ] End-to-end tests: full lifecycle (register → confirm → login → call a protected endpoint → refresh → logout → confirm rejection afterward), the rate limiter returning 429 past its threshold, an account-lockout test using `FakeTimeProvider` to advance past the lockout window without a real wait
+- [x] `IAuthService`/`AuthService`: every flow above, delegating token issuance to `ITokenService`
+- [x] `RegisterAsync` and `ForgotPasswordAsync` call `IEmailService` (from `feature/core-architecture`) to send the confirmation link and the reset link, respectively, instead of only generating a token that nothing ever delivers
+- [x] `ChangePasswordAsync`: wraps `UserManager.ChangePasswordAsync(user, currentPassword, newPassword)` - distinct from `ResetPasswordAsync`, which is for a user who has lost access and can't provide a current password; a password change here also revokes every outstanding refresh token family for the user (the same `SecurityStamp`-comparison mechanism from `feature/token-lifecycle` handles this automatically, since `ChangePasswordAsync` rotates the stamp)
+- [x] `Program.cs`: `options.SignIn.RequireConfirmedAccount = true` set explicitly on `AddIdentity<...>()` - without it, `Login` succeeds for an account that never completed `ConfirmEmail`, making the activation flow purely cosmetic
+- [x] `ForgotPasswordAsync` returns the exact same response - same status code, same body - whether or not the submitted email matches an existing account, and takes roughly the same amount of time either way (no early return that skips the token-generation work); without this, the endpoint becomes a user-enumeration oracle, since a distinguishable response (or a measurably faster one) tells an attacker which emails are registered
+- [x] `AuthController`
+- [x] `RateLimiterPolicies`: a named fixed-window policy (`"auth"`, e.g. 5 requests/minute per IP) applied via `[EnableRateLimiting("auth")]` on `Register`, `Login`, and `ForgotPassword` - Identity's own lockout already protects a single account from brute force, this protects the endpoint itself from distributed attempts across many accounts; the same named policy is reused by `feature/mfa`'s `VerifyTwoFactor` endpoint
+- [x] `Program.cs` finalized: `AddAuthentication().AddJwtBearer(...)`, `AddAuthorization`, `AddRateLimiter(...)`
+- [x] End-to-end tests: full lifecycle (register → confirm → login → call a protected endpoint → refresh → logout → confirm rejection afterward), the rate limiter returning 429 past its threshold, an account-lockout test - `FakeTimeProvider` advances `ITokenService`'s own timestamps, but Identity's lockout clock isn't `TimeProvider`-seamed in this SDK version (confirmed, see `.claude/CLAUDE.md`), so the lockout test simulates elapsed time via `UserManager.SetLockoutEndDateAsync` instead, still without any real wait
 
 ## feature/mfa
 
@@ -314,21 +314,21 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `IMfaService`/`MfaService`: wraps `UserManager.GenerateAuthenticatorKeyAsync`, `VerifyTwoFactorTokenAsync`, `GenerateNewTwoFactorRecoveryCodesAsync`, `SetTwoFactorEnabledAsync`
-- [ ] `VerifyTwoFactor` is rate-limited via the same `"auth"` policy defined in `feature/auth-flows` - a 6-digit TOTP code has limited entropy, and this endpoint is exactly as brute-forceable as `Login` itself, so it gets the same protection rather than being overlooked as a follow-up step to an already-authenticated-feeling flow
-- [ ] `AuthService.LoginAsync` updated: if `TwoFactorEnabled` is true, returns a partial result (no tokens yet) instead of calling `ITokenService.IssueTokensAsync` directly; `VerifyTwoFactor` completes the flow and issues tokens only after a valid TOTP code or recovery code
-- [ ] `AuthController` extended with the four endpoints above
-- [ ] Tests: enabling 2FA, a login attempt correctly stopping short of issuing tokens, completing it with a valid code, rejecting an invalid one, and recovery-code login consuming a code so it can't be reused
+- [x] `IMfaService`/`MfaService`: wraps `UserManager.GenerateAuthenticatorKeyAsync`, `VerifyTwoFactorTokenAsync`, `GenerateNewTwoFactorRecoveryCodesAsync`, `SetTwoFactorEnabledAsync`
+- [x] `VerifyTwoFactor` is rate-limited via the same `"auth"` policy defined in `feature/auth-flows` - a 6-digit TOTP code has limited entropy, and this endpoint is exactly as brute-forceable as `Login` itself, so it gets the same protection rather than being overlooked as a follow-up step to an already-authenticated-feeling flow
+- [x] `AuthService.LoginAsync` updated: if `TwoFactorEnabled` is true, returns a partial result (no tokens yet) instead of calling `ITokenService.IssueTokensAsync` directly; `VerifyTwoFactor` completes the flow and issues tokens only after a valid TOTP code or recovery code
+- [x] `AuthController` extended with the four endpoints above
+- [x] Tests: enabling 2FA, a login attempt correctly stopping short of issuing tokens, completing it with a valid code, rejecting an invalid one, and recovery-code login consuming a code so it can't be reused
 
 ## feature/audit-logging
 
 ### Tasks
 
-- [ ] `AuditLog` entity (`actor_user_id`, `action`, `entity_type`, `entity_id`, `details` as a JSON column, `created_at` via `TimeProvider`)
-- [ ] `IAuditService`/`AuditService`: a single `LogAsync(action, entityType, entityId, details)` method
-- [ ] Wired into every mutating operation in `RbacService` and `UserAdminService` (role/permission assignment and removal, user lock/unlock) - each call records who did what, to what, and when
-- [ ] `GET /api/v1/AuditLogs` - paginated, filterable by actor/entity type, `[Authorize(Policy = "AUDIT:READ")]`
-- [ ] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
+- [x] `AuditLog` entity (`actor_user_id`, `action`, `entity_type`, `entity_id`, `details` as a JSON column, `created_at` via `TimeProvider`)
+- [x] `IAuditService`/`AuditService`: a single `LogAsync(action, entityType, entityId, details)` method
+- [x] Wired into every mutating operation in `RbacService` and `UserAdminService` (role/permission assignment and removal, user lock/unlock) - each call records who did what, to what, and when
+- [x] `GET /api/v1/AuditLogs` - paginated, filterable by actor/entity type, `[Authorize(Policy = "AUDIT:READ")]`
+- [x] Tests: every RBAC mutation from `feature/rbac`'s test suite re-run with an assertion that a matching audit entry now exists
 
 ## feature/external-logins (bonus)
 
@@ -341,9 +341,9 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `Microsoft.AspNetCore.Authentication.Google`, configured with a client id/secret from configuration
-- [ ] `ExternalLoginController`: initiates the challenge, handles the callback (`UserManager.GetExternalLoginInfoAsync`, `AddLoginAsync` for a new user or `FindByLoginAsync` for a returning one), issues tokens via `ITokenService` on success - an external login still goes through the exact same claims/token pipeline as a password login, no separate code path
-- [ ] Tests: a first-time external sign-in creating a linked `ApplicationUser`, a returning one resolving to the existing account
+- [x] `Microsoft.AspNetCore.Authentication.Google`, configured with a client id/secret from configuration
+- [x] `ExternalLoginController`: initiates the challenge, handles the callback (`UserManager.GetExternalLoginInfoAsync`, `AddLoginAsync` for a new user or `FindByLoginAsync` for a returning one), issues tokens via `ITokenService` on success - an external login still goes through the exact same claims/token pipeline as a password login, no separate code path
+- [x] Tests: a first-time external sign-in creating a linked `ApplicationUser`, a returning one resolving to the existing account
 
 ## Order of work
 
@@ -391,4 +391,12 @@ DotnetIdentityTutorial/
 
 1. Clone the repository and check out `develop`
 2. Follow the branches in order: `feature/core-architecture` → `feature/identity-setup` → `feature/rbac` → `feature/claims-and-authorization` → `feature/token-lifecycle` → `feature/auth-flows` → `feature/mfa` → `feature/audit-logging` → (bonus) `feature/external-logins`
-3. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
+3. Copy `.env.example` to `.env` and fill in real values. `docker-compose.yml` expects an
+   external Docker network named `pg_net` with a reachable PostgreSQL container named
+   `postgres_main` on it, matching `.env.example`'s default `POSTGRES_HOST` (this keeps
+   one shared Postgres instance across this author's tutorials instead of a dedicated one
+   per project); create your own with `docker network create pg_net` and a `postgres:16`
+   container named `postgres_main` attached to it (or add your own `postgres` service to
+   `docker-compose.yml` and point `POSTGRES_HOST` in `.env` at whatever you name it
+   instead, if you'd rather have compose provision it directly)
+4. Run the project with `docker-compose up`, then open Swagger UI at `http://localhost:8080/swagger`
