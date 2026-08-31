@@ -12,6 +12,7 @@ using DotnetIdentityTutorial.Services;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using FluentValidation;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -59,6 +60,7 @@ builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IMfaService, MfaService>();
+builder.Services.AddScoped<IExternalLoginService, ExternalLoginService>();
 
 // Bound once here from the Jwt config section and shared by TokenService (issuance) and the
 // TokenValidationParameters below (validation) - see JwtSettings' own remarks for why reading
@@ -157,6 +159,18 @@ builder.Services.AddAuthentication(options =>
                 }
             },
         };
+    })
+    // Additive to the JWT Bearer scheme above, not a replacement of the default: this only
+    // registers a named "Google" authentication scheme that ExternalLoginController's own
+    // Challenge(properties, GoogleDefaults.AuthenticationScheme) call targets explicitly - it
+    // never becomes DefaultChallengeScheme, so every other [Authorize]-protected endpoint keeps
+    // challenging with JWT Bearer exactly as before.
+    .AddGoogle(options =>
+    {
+        options.ClientId = builder.Configuration["Authentication:Google:ClientId"]
+            ?? throw new InvalidOperationException("Missing 'Authentication:Google:ClientId' configuration value.");
+        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]
+            ?? throw new InvalidOperationException("Missing 'Authentication:Google:ClientSecret' configuration value.");
     });
 
 builder.Services.AddAuthorization();
