@@ -106,7 +106,7 @@ public sealed class UserAdminService : IUserAdminService
             throw new BusinessRuleException($"Failed to lock user {userId}: {errors}");
         }
 
-        await _auditService.LogAsync("Lock", "User", userId.ToString(), new { LockoutEnd = lockoutEnd });
+        await _auditService.LogAsync("Lock", "User", userId.ToString(), new { LockoutEnd = lockoutEnd }, cancellationToken);
     }
 
     public async Task UnlockUserAsync(int userId, CancellationToken cancellationToken = default)
@@ -126,7 +126,7 @@ public sealed class UserAdminService : IUserAdminService
         // give the user a clean slate, not one bad attempt away from being auto-locked again.
         await _userManager.ResetAccessFailedCountAsync(user);
 
-        await _auditService.LogAsync("Unlock", "User", userId.ToString(), null);
+        await _auditService.LogAsync("Unlock", "User", userId.ToString(), null, cancellationToken);
     }
 
     private static UserResponse Map(ApplicationUser user, IReadOnlyList<string> roles)
