@@ -7,6 +7,7 @@ using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.ErrorHandling;
 using DotnetIdentityTutorial.Filters;
 using DotnetIdentityTutorial.Identity;
+using DotnetIdentityTutorial.RateLimiting;
 using DotnetIdentityTutorial.Services;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
@@ -14,6 +15,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -50,6 +52,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IRbacService, RbacService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Bound once here from the Jwt config section and shared by TokenService (issuance) and the
 // TokenValidationParameters below (validation) - see JwtSettings' own remarks for why reading
@@ -86,6 +89,12 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     options.Lockout.MaxFailedAccessAttempts = 5;
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     options.Lockout.AllowedForNewUsers = true;
+
+    // Without this, CheckPasswordSignInAsync would let an account that never completed
+    // ConfirmEmail sign in successfully, making the whole activation flow purely cosmetic -
+    // SignInResult.IsNotAllowed (mapped to a BusinessRuleException in AuthService.LoginAsync)
+    // only reflects this setting when it's explicitly turned on.
+    options.SignIn.RequireConfirmedAccount = true;
 })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders()
@@ -145,6 +154,15 @@ builder.Services.AddAuthentication(options =>
     });
 
 builder.Services.AddAuthorization();
+
+// Named policies applied per-action via [EnableRateLimiting("...")] rather than one global
+// limit - see RateLimiterPolicies for why Register/Login/ForgotPassword specifically need this
+// in addition to Identity's own per-account lockout.
+builder.Services.AddRateLimiter(options =>
+{
+    options.ConfigureRejectionResponse();
+    options.AddAuthPolicy();
+});
 
 // Replaces the default IAuthorizationPolicyProvider so any [Authorize(Policy = "RESOURCE:ACTION")]
 // attribute already sitting on UsersController/RolesController/PermissionsController (added on
@@ -222,6 +240,11 @@ app.UseCors(FrontendCorsPolicy);
 app.UseAuthentication();
 
 app.UseAuthorization();
+
+// After routing/auth concerns are resolved (so a rate-limited partition can be keyed off
+// request state established by then) and before the endpoints it protects actually execute -
+// per ASP.NET Core's documented ordering for UseRateLimiter.
+app.UseRateLimiter();
 
 app.MapControllers();
 
