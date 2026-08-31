@@ -1,14 +1,21 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using DotnetIdentityTutorial.Authorization;
+using DotnetIdentityTutorial.BackgroundServices;
 using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.ErrorHandling;
 using DotnetIdentityTutorial.Filters;
 using DotnetIdentityTutorial.Identity;
+using DotnetIdentityTutorial.Services;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using FluentValidation;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 // Types like OpenApiInfo/OpenApiSecurityScheme live directly under Microsoft.OpenApi here,
 // not under Microsoft.OpenApi.Models as most Swashbuckle examples show. Swashbuckle.AspNetCore
@@ -42,6 +49,18 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IRbacService, RbacService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+
+// Bound once here from the Jwt config section and shared by TokenService (issuance) and the
+// TokenValidationParameters below (validation) - see JwtSettings' own remarks for why reading
+// the same five keys as independent raw strings in two places was worth consolidating.
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
+var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
+    ?? throw new InvalidOperationException($"Missing or invalid '{JwtSettings.SectionName}' configuration section.");
+
+// Daily housekeeping for RefreshTokens/BlacklistedAccessTokens - see
+// ExpiredTokenCleanupService's own remarks for why this is safe to run unconditionally.
+builder.Services.AddHostedService<ExpiredTokenCleanupService>();
 
 // Discovers every FluentValidation AbstractValidator<T> in this assembly (RoleRequestValidator,
 // PermissionRequestValidator, ...) and registers it as IValidator<T> in DI - the global
@@ -51,9 +70,11 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Password/lockout policy only - the JWT bearer scheme itself is feature/token-lifecycle's
-// job, this branch only needs Identity's own stores and token providers (email confirmation,
-// password reset) wired up.
+// Password/lockout policy, Identity's own stores and token providers (email confirmation,
+// password reset), and the custom claims principal factory. AddIdentity internally registers
+// its own cookie-based authentication schemes for whatever Identity itself still needs them
+// for - the AddAuthentication/AddJwtBearer call below overrides the *default* scheme to JWT
+// Bearer without removing those.
 builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
 {
     options.Password.RequireDigit = true;
@@ -73,6 +94,55 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     // claim per distinct permission granted by that user's current roles - see
     // ApplicationUserClaimsPrincipalFactory for the actual resolution logic.
     .AddClaimsPrincipalFactory<ApplicationUserClaimsPrincipalFactory>();
+
+// JWT Bearer becomes the scheme actually used for [Authorize] on API endpoints - additive to
+// the cookie schemes AddIdentity already registered above, not a replacement of them.
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtSettings.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SigningKey)),
+            ValidateLifetime = true,
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            // Access tokens are otherwise validated statelessly - no database round trip at
+            // all - except for this one check: a token's jti is checked against
+            // BlacklistedAccessToken (via ITokenService, not AppDbContext directly - that
+            // ownership stays with TokenService) so an explicit logout takes effect immediately
+            // instead of waiting up to Jwt:AccessTokenMinutes for the token to expire on its
+            // own. ITokenService is resolved from the request's own scope, not captured from
+            // this closure, since this event fires once per request.
+            OnTokenValidated = async context =>
+            {
+                var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+                if (string.IsNullOrEmpty(jti))
+                {
+                    context.Fail("The access token is missing a jti claim.");
+                    return;
+                }
+
+                var tokenService = context.HttpContext.RequestServices.GetRequiredService<ITokenService>();
+                var isBlacklisted = await tokenService.IsAccessTokenBlacklistedAsync(jti, context.HttpContext.RequestAborted);
+
+                if (isBlacklisted)
+                {
+                    context.Fail("This access token has been revoked.");
+                }
+            },
+        };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -145,12 +215,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(FrontendCorsPolicy);
 
-// AddIdentity<>() above already registers the cookie-based authentication schemes
-// Identity needs internally (it calls AddAuthentication for you); this middleware is
-// what actually populates HttpContext.User from them on each request, without it
-// UseAuthorization below would only ever see an anonymous principal. Registering it
-// now, even though no [Authorize] endpoint exists yet, fixes the pipeline order once
-// so feature/token-lifecycle doesn't have to remember to insert it in the right spot.
+// Populates HttpContext.User from the default scheme (JWT Bearer, per the
+// AddAuthentication(...).AddJwtBearer(...) call above) on each request - without it,
+// UseAuthorization below would only ever see an anonymous principal. Identity's own cookie
+// schemes stay registered underneath for whatever Identity itself still needs them for.
 app.UseAuthentication();
 
 app.UseAuthorization();
