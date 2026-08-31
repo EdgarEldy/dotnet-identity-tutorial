@@ -15,6 +15,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
 
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<BlacklistedAccessToken> BlacklistedAccessTokens => Set<BlacklistedAccessToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
