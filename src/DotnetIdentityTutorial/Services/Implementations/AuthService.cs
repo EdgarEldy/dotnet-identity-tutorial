@@ -114,9 +114,21 @@ public sealed class AuthService : IAuthService
         // with Identity's own lockout counting - a failed attempt increments AccessFailedCount
         // and locks the account after Lockout.MaxFailedAccessAttempts - and its IsNotAllowed
         // result already reflects RequireConfirmedAccount without this method re-checking
-        // EmailConfirmed itself. RequiresTwoFactor is set internally by Identity based on
-        // user.TwoFactorEnabled - unchanged by this branch, just handled below now instead of
-        // being unreachable.
+        // EmailConfirmed itself.
+        //
+        // Deliberately CheckPasswordSignInAsync, not the higher-level PasswordSignInAsync:
+        // PasswordSignInAsync is the one that inspects TwoFactorEnabled and returns
+        // SignInResult.TwoFactorRequired (via its own internal SignInOrTwoFactorAsync), but it
+        // does so by also establishing Identity's own cookie-based sign-in ticket
+        // (HttpContext.SignInAsync against the cookie scheme AddIdentity registers) as a side
+        // effect of a successful check - a side effect with no place in this stateless JWT API.
+        // CheckPasswordSignInAsync never sets RequiresTwoFactor at all (confirmed by reading the
+        // installed SignInManager's own implementation, not assumed): it only verifies the
+        // password and applies lockout counting, deliberately stopping short of cookie issuance
+        // or 2FA gating. 2FA therefore has to be checked explicitly below, once the password
+        // itself is confirmed correct, via the same SignInManager.IsTwoFactorEnabledAsync check
+        // PasswordSignInAsync uses internally - not by reading result.RequiresTwoFactor, which
+        // this call path never sets.
         var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
 
         if (result.IsLockedOut)
@@ -129,7 +141,12 @@ public sealed class AuthService : IAuthService
             throw new BusinessRuleException("This account is not allowed to sign in yet. Confirm your email first.");
         }
 
-        if (result.RequiresTwoFactor)
+        if (!result.Succeeded)
+        {
+            throw new BusinessRuleException("Invalid email or password.");
+        }
+
+        if (await _signInManager.IsTwoFactorEnabledAsync(user))
         {
             // The password check already succeeded at this point - what's missing is the second
             // factor, not proof of identity itself. Stop short of issuing real tokens: instead
@@ -140,11 +157,6 @@ public sealed class AuthService : IAuthService
             // two-factor cookie - is what makes this safe in a stateless API.
             var twoFactorToken = await _tokenService.IssueTwoFactorChallengeTokenAsync(user, cancellationToken);
             return new LoginResult(null, twoFactorToken);
-        }
-
-        if (!result.Succeeded)
-        {
-            throw new BusinessRuleException("Invalid email or password.");
         }
 
         var tokens = await _tokenService.IssueTokensAsync(user, cancellationToken);
