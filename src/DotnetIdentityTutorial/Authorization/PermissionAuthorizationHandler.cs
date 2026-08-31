@@ -10,13 +10,11 @@ namespace DotnetIdentityTutorial.Authorization;
 /// </summary>
 public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
 {
-    private const string PermissionClaimType = "permission";
-
     protected override Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         PermissionRequirement requirement)
     {
-        if (context.User.HasClaim(PermissionClaimType, requirement.Permission))
+        if (context.User.HasClaim(PermissionRequirement.ClaimType, requirement.Permission))
         {
             context.Succeed(requirement);
         }
