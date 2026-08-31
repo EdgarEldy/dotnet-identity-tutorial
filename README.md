@@ -267,11 +267,11 @@ DotnetIdentityTutorial/
 
 ### Tasks
 
-- [ ] `RefreshToken`, `BlacklistedAccessToken` entities, both referencing `TimeProvider` (injected into `ITokenService`) rather than `DateTime.UtcNow` for every timestamp they record
-- [ ] `ITokenService`/`TokenService`: `IssueTokensAsync` (builds the claims principal, issues the JWT with a unique `jti`, issues and persists a refresh token capturing the user's *current* `SecurityStamp`), `RefreshAsync` (validates the token, compares its captured `SecurityStamp` against the user's current one - mismatch means revoke-and-reject regardless of expiry - then rotates), `RevokeAsync` (logout: blacklists the access token's `jti`, revokes the refresh token family)
-- [ ] JWT Bearer `OnTokenValidated` event: checks the `jti` against `BlacklistedAccessToken`
-- [ ] `ExpiredTokenCleanupService` (`IHostedService`/`BackgroundService`, using the injected `TimeProvider`): runs on a daily interval, deletes `RefreshToken` and `BlacklistedAccessToken` rows past their `expires_at` - without this, both tables grow unbounded, since revocation only marks a row, it never removes it. This is a housekeeping concern, not a security one: a revoked or expired token is already rejected regardless of whether its row still exists
-- [ ] Tests (using `FakeTimeProvider` to simulate elapsed time without real delays): issue → refresh → refresh again (rotation), reused refresh token triggering family revocation, a password change (simulated `SecurityStamp` rotation) invalidating an outstanding refresh token even before its natural expiry
+- [x] `RefreshToken`, `BlacklistedAccessToken` entities, both referencing `TimeProvider` (injected into `ITokenService`) rather than `DateTime.UtcNow` for every timestamp they record
+- [x] `ITokenService`/`TokenService`: `IssueTokensAsync` (builds the claims principal, issues the JWT with a unique `jti`, issues and persists a refresh token capturing the user's *current* `SecurityStamp`), `RefreshAsync` (validates the token, compares its captured `SecurityStamp` against the user's current one - mismatch means revoke-and-reject regardless of expiry - then rotates), `RevokeAsync` (logout: blacklists the access token's `jti`, revokes the refresh token family)
+- [x] JWT Bearer `OnTokenValidated` event: checks the `jti` against `BlacklistedAccessToken`
+- [x] `ExpiredTokenCleanupService` (`IHostedService`/`BackgroundService`, using the injected `TimeProvider`): runs on a daily interval, deletes `RefreshToken` and `BlacklistedAccessToken` rows past their `expires_at` - without this, both tables grow unbounded, since revocation only marks a row, it never removes it. This is a housekeeping concern, not a security one: a revoked or expired token is already rejected regardless of whether its row still exists
+- [x] Tests (using `FakeTimeProvider` to simulate elapsed time without real delays): issue → refresh → refresh again (rotation), reused refresh token triggering family revocation, a password change (simulated `SecurityStamp` rotation) invalidating an outstanding refresh token even before its natural expiry
 
 ## feature/auth-flows
 
