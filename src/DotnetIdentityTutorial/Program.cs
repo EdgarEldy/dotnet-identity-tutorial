@@ -1,3 +1,4 @@
+using DotnetIdentityTutorial.Authorization;
 using DotnetIdentityTutorial.Data;
 using DotnetIdentityTutorial.ErrorHandling;
 using DotnetIdentityTutorial.Filters;
@@ -5,6 +6,7 @@ using DotnetIdentityTutorial.Identity;
 using DotnetIdentityTutorial.Services.Implementations;
 using DotnetIdentityTutorial.Services.Interfaces;
 using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -65,11 +67,22 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     options.Lockout.AllowedForNewUsers = true;
 })
     .AddEntityFrameworkStores<AppDbContext>()
-    .AddDefaultTokenProviders();
+    .AddDefaultTokenProviders()
+    // Replaces Identity's default UserClaimsPrincipalFactory: this is what makes every
+    // ClaimsPrincipal Identity builds for a signed-in user also carry one "permission"
+    // claim per distinct permission granted by that user's current roles - see
+    // ApplicationUserClaimsPrincipalFactory for the actual resolution logic.
+    .AddClaimsPrincipalFactory<ApplicationUserClaimsPrincipalFactory>();
 
-// No policies yet - PermissionPolicyProvider arrives with feature/claims-and-authorization.
-// Registered now so UseAuthorization() below has something backing it.
 builder.Services.AddAuthorization();
+
+// Replaces the default IAuthorizationPolicyProvider so any [Authorize(Policy = "RESOURCE:ACTION")]
+// attribute already sitting on UsersController/RolesController/PermissionsController (added on
+// feature/rbac) resolves to a policy on demand instead of failing with "no policy named 'X:Y' was
+// found" - see PermissionPolicyProvider. PermissionAuthorizationHandler is the handler that
+// actually evaluates the resulting PermissionRequirement against the caller's claims.
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 const string FrontendCorsPolicy = "Frontend";
